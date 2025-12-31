@@ -939,6 +939,98 @@ export class GameScene extends BaseScene {
     })
   }
 
+  /**
+   * 鏡餅の断面プロファイルを計算（視覚・物理で共通使用）
+   */
+  private getMochiProfile(radius: number, height: number, segments: number = 8): { r: number; y: number }[] {
+    const points: { r: number; y: number }[] = []
+    const topRadius = radius * 0.65
+
+    for (let i = 0; i <= segments; i++) {
+      const t = i / segments
+      const ease = t * t * (3 - 2 * t) // smoothstep
+      const r = radius - (radius - topRadius) * ease
+      const y = -height / 2 + height * t
+      points.push({ r, y })
+    }
+
+    return points
+  }
+
+  /**
+   * お餅らしい形状を作成（下が広く上が丸い鏡餅型）- 視覚用
+   */
+  private createMochiGeometry(radius: number, height: number): THREE.BufferGeometry {
+    const profile = this.getMochiProfile(radius, height, 16)
+    const points = profile.map(p => new THREE.Vector2(p.r, p.y))
+    // 上面を閉じる
+    points.push(new THREE.Vector2(0, height / 2))
+    return new THREE.LatheGeometry(points, 32)
+  }
+
+  /**
+   * お餅の物理形状を作成（視覚と一致するConvexPolyhedron）
+   */
+  private createMochiPhysicsShape(radius: number, height: number): CANNON.Shape {
+    const profile = this.getMochiProfile(radius, height, 6) // 物理用は軽量化
+    const radialSegments = 12
+
+    const vertices: CANNON.Vec3[] = []
+    const faces: number[][] = []
+
+    // 回転体の頂点を生成
+    for (let i = 0; i < profile.length; i++) {
+      const { r, y } = profile[i]
+      for (let j = 0; j < radialSegments; j++) {
+        const angle = (j / radialSegments) * Math.PI * 2
+        vertices.push(new CANNON.Vec3(
+          r * Math.cos(angle),
+          y,
+          r * Math.sin(angle)
+        ))
+      }
+    }
+
+    // 上端の中心点を追加
+    const topCenterIndex = vertices.length
+    vertices.push(new CANNON.Vec3(0, height / 2, 0))
+
+    // 底面の中心点を追加
+    const bottomCenterIndex = vertices.length
+    vertices.push(new CANNON.Vec3(0, -height / 2, 0))
+
+    // 側面の面を生成
+    for (let i = 0; i < profile.length - 1; i++) {
+      for (let j = 0; j < radialSegments; j++) {
+        const curr = i * radialSegments + j
+        const next = i * radialSegments + ((j + 1) % radialSegments)
+        const currUp = (i + 1) * radialSegments + j
+        const nextUp = (i + 1) * radialSegments + ((j + 1) % radialSegments)
+
+        // 2つの三角形で四角形を構成
+        faces.push([curr, next, nextUp])
+        faces.push([curr, nextUp, currUp])
+      }
+    }
+
+    // 上面（最後のリングから中心点へ）
+    const topRing = (profile.length - 1) * radialSegments
+    for (let j = 0; j < radialSegments; j++) {
+      const curr = topRing + j
+      const next = topRing + ((j + 1) % radialSegments)
+      faces.push([curr, topCenterIndex, next])
+    }
+
+    // 底面
+    for (let j = 0; j < radialSegments; j++) {
+      const curr = j
+      const next = (j + 1) % radialSegments
+      faces.push([next, bottomCenterIndex, curr])
+    }
+
+    return new CANNON.ConvexPolyhedron({ vertices, faces })
+  }
+
   private createLaunchObject(): LaunchedObject {
     let geometry: THREE.BufferGeometry
     let material: THREE.Material
@@ -947,25 +1039,27 @@ export class GameScene extends BaseScene {
 
     switch (this.currentType) {
       case 'base':
-        geometry = new THREE.SphereGeometry(1.5, 32, 24)
-        geometry.scale(1, 0.5, 1)
+        // お餅らしい形状：下が広く上が丸い鏡餅型
+        geometry = this.createMochiGeometry(1.5, 0.75)
         material = new THREE.MeshStandardMaterial({
           color: 0xfff8e7,
           roughness: 0.9,
           metalness: 0.0
         })
-        shape = new CANNON.Sphere(1.2)
+        // 視覚と一致するConvexPolyhedron
+        shape = this.createMochiPhysicsShape(1.5, 0.75)
         mass = 3
         break
       case 'top':
-        geometry = new THREE.SphereGeometry(1.1, 32, 24)
-        geometry.scale(1, 0.5, 1)
+        // 上餅も同様に鏡餅型
+        geometry = this.createMochiGeometry(1.1, 0.55)
         material = new THREE.MeshStandardMaterial({
           color: 0xfff8e7,
           roughness: 0.9,
           metalness: 0.0
         })
-        shape = new CANNON.Sphere(0.9)
+        // 視覚と一致するConvexPolyhedron
+        shape = this.createMochiPhysicsShape(1.1, 0.55)
         mass = 2
         break
       case 'mikan':

@@ -175,9 +175,8 @@ export class IntroScene extends BaseScene {
     dai.receiveShadow = true
     this.kagamimochi.add(dai)
 
-    // Bottom mochi
-    const bottomMochiGeometry = new THREE.SphereGeometry(1.5, 32, 24)
-    bottomMochiGeometry.scale(1, 0.5, 1)
+    // Bottom mochi（下が広い鏡餅型）
+    const bottomMochiGeometry = this.createMochiGeometry(1.5, 0.75)
     const mochiMaterial = new THREE.MeshStandardMaterial({
       color: 0xfff8e7,
       roughness: 0.9,
@@ -188,9 +187,8 @@ export class IntroScene extends BaseScene {
     bottomMochi.castShadow = true
     this.kagamimochi.add(bottomMochi)
 
-    // Top mochi
-    const topMochiGeometry = new THREE.SphereGeometry(1.1, 32, 24)
-    topMochiGeometry.scale(1, 0.5, 1)
+    // Top mochi（下が広い鏡餅型）
+    const topMochiGeometry = this.createMochiGeometry(1.1, 0.55)
     const topMochi = new THREE.Mesh(topMochiGeometry, mochiMaterial)
     topMochi.position.y = -0.2
     topMochi.castShadow = true
@@ -233,6 +231,26 @@ export class IntroScene extends BaseScene {
     floor.position.y = -2
     floor.receiveShadow = true
     this.scene.add(floor)
+  }
+
+  /**
+   * お餅らしい形状を作成（下が広く上が丸い鏡餅型）
+   */
+  private createMochiGeometry(radius: number, height: number): THREE.BufferGeometry {
+    const points: THREE.Vector2[] = []
+    const segments = 16
+
+    for (let i = 0; i <= segments; i++) {
+      const t = i / segments
+      const topRadius = radius * 0.65
+      const ease = t * t * (3 - 2 * t)
+      const r = radius - (radius - topRadius) * ease
+      const y = -height / 2 + height * t
+      points.push(new THREE.Vector2(r, y))
+    }
+    points.push(new THREE.Vector2(0, height / 2))
+
+    return new THREE.LatheGeometry(points, 32)
   }
 
   private buildUI3D() {
