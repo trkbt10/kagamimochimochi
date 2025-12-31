@@ -46,6 +46,7 @@ export class IntroScene extends BaseScene {
   private mouse = new THREE.Vector2()
   private hoveredButton: Button3D | null = null
   private activeSlider: Slider3D | null = null
+  private activeButton: Button3D | null = null
 
   // イベントハンドラ
   private boundOnPointerMove: (e: PointerEvent) => void
@@ -574,6 +575,7 @@ export class IntroScene extends BaseScene {
       const button = intersects[0].object.userData.button as Button3D | undefined
       if (button) {
         button.setPressed(true)
+        this.activeButton = button
       }
     }
   }
@@ -586,21 +588,22 @@ export class IntroScene extends BaseScene {
       return
     }
 
+    // ボタンのクリック処理（押下時に記録したボタンを使用）
+    if (this.activeButton) {
+      this.activeButton.setPressed(false)
+      if (this.activeButton.onClick) {
+        this.activeButton.onClick()
+      }
+      this.activeButton = null
+      return
+    }
+
+    // activeButton がない場合のフォールバック（ホバー状態のクリア用）
     this.updateMousePosition(e)
     this.raycaster.setFromCamera(this.mouse, this.game.camera)
 
     const buttons = this.getInteractiveButtons()
-    const intersects = this.raycaster.intersectObjects(buttons.map(b => b.getMesh()))
-
-    // すべてのボタンの押下状態をクリア
     buttons.forEach(b => b.setPressed(false))
-
-    if (intersects.length > 0) {
-      const button = intersects[0].object.userData.button as Button3D | undefined
-      if (button && button.onClick) {
-        button.onClick()
-      }
-    }
   }
 
   private getInteractiveButtons(): Button3D[] {

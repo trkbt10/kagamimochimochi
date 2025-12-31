@@ -4,6 +4,7 @@ import type { BaseScene } from '../scenes/BaseScene'
 export class SceneManager {
   private scenes: Map<string, BaseScene> = new Map()
   private currentScene: BaseScene | null = null
+  private isTransitioning = false
 
   constructor(_game: Game) {
     // Game reference available for future use
@@ -14,18 +15,25 @@ export class SceneManager {
   }
 
   async switchTo(name: string, data?: Record<string, unknown>) {
+    if (this.isTransitioning) return
+
     const newScene = this.scenes.get(name)
     if (!newScene) {
       console.error(`Scene "${name}" not found`)
       return
     }
 
-    if (this.currentScene) {
-      await this.currentScene.exit()
-    }
+    this.isTransitioning = true
+    try {
+      if (this.currentScene) {
+        await this.currentScene.exit()
+      }
 
-    this.currentScene = newScene
-    await this.currentScene.enter(data)
+      this.currentScene = newScene
+      await this.currentScene.enter(data)
+    } finally {
+      this.isTransitioning = false
+    }
   }
 
   getCurrentScene(): BaseScene | null {
