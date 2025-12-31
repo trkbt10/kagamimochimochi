@@ -1,0 +1,26 @@
+{
+  "name": "kagamimochimochi",
+  "version": "1.0.0",
+  "description": "鏡餅スタッキングゲーム - 新年あけましておめでとうございます！",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "repository": {
+    "type": "git",
+    "url": "http://local_proxy@127.0.0.1:49823/git/trkbt10/kagamimochimochi"
+  },
+  "keywords": ["game", "three.js", "kagamimochi", "new-year"],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@types/three": "^0.182.0",
+    "cannon-es": "^0.20.0",
+    "gsap": "^3.14.2",
+    "three": "^0.182.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.0"
+  }
+}
