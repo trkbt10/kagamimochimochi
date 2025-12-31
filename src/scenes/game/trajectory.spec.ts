@@ -1,14 +1,16 @@
 import { describe, expect, it } from 'bun:test'
 import * as THREE from 'three'
 import {
-  calculatePowerMultiplier,
-  calculateSpeed,
   calculateTrajectory,
   getTrajectoryColor,
   createTrajectoryLine,
   createTargetMarker
 } from './trajectory'
-import { calculateInitialVelocity } from '../../types/launch'
+import {
+  calculatePowerMultiplier,
+  calculateSpeed,
+  calculateInitialVelocity
+} from '../../types/launch'
 
 describe('trajectory', () => {
   describe('calculatePowerMultiplier', () => {
@@ -127,6 +129,35 @@ describe('trajectory', () => {
         expect(point.y).toBeGreaterThanOrEqual(-2)
       }
     })
+
+    it('should apply damping to horizontal velocity', () => {
+      const noDampingResult = calculateTrajectory({ ...defaultParams, damping: 0 }, 50)
+      const withDampingResult = calculateTrajectory({ ...defaultParams, damping: 0.4 }, 50)
+
+      // dampingありの場合、z方向の移動距離が小さくなる
+      const noDampingLastZ = noDampingResult.points[noDampingResult.points.length - 1].z
+      const withDampingLastZ = withDampingResult.points[withDampingResult.points.length - 1].z
+
+      // 両方ともz方向に負の方向（前方）に移動
+      expect(noDampingLastZ).toBeLessThan(10)
+      expect(withDampingLastZ).toBeLessThan(10)
+
+      // dampingがある場合、移動距離が小さい（zがより大きい = 原点に近い）
+      expect(withDampingLastZ).toBeGreaterThan(noDampingLastZ)
+    })
+
+    it('should use default damping of 0.4', () => {
+      // デフォルトdampingと明示的にdamping=0.4を指定した結果が一致
+      const defaultResult = calculateTrajectory(defaultParams, 50)
+      const explicitResult = calculateTrajectory({ ...defaultParams, damping: 0.4 }, 50)
+
+      const lastPointDefault = defaultResult.points[defaultResult.points.length - 1]
+      const lastPointExplicit = explicitResult.points[explicitResult.points.length - 1]
+
+      expect(lastPointDefault.x).toBeCloseTo(lastPointExplicit.x, 5)
+      expect(lastPointDefault.y).toBeCloseTo(lastPointExplicit.y, 5)
+      expect(lastPointDefault.z).toBeCloseTo(lastPointExplicit.z, 5)
+    })
   })
 
   describe('getTrajectoryColor', () => {
@@ -178,9 +209,9 @@ describe('trajectory', () => {
       expect(marker.geometry).toBeInstanceOf(THREE.RingGeometry)
     })
 
-    it('should be positioned on the ground plane', () => {
+    it('should be positioned on the DAI surface', () => {
       const marker = createTargetMarker()
-      expect(marker.position.y).toBe(-1.45)
+      expect(marker.position.y).toBe(-1.5) // DAI_SURFACE_Y
     })
 
     it('should be rotated to face up', () => {

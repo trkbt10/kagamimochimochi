@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { createTextSprite } from './text-sprite'
+import { gaugeToAngleH, gaugeToAngleV } from '../../types/launch'
 
 export type GaugeGroup = {
   group: THREE.Group
@@ -185,13 +186,13 @@ export const createPowerGauge = (): GaugeGroup => {
 export const updateDirectionGauge = (gauge: GaugeGroup, gaugeValue: number): number => {
   const x = (gaugeValue / 100) * 6 - 3
   gauge.indicator.position.x = x
-  return (gaugeValue - 50) * 1.2
+  return gaugeToAngleH(gaugeValue)
 }
 
 export const updateElevationGauge = (gauge: GaugeGroup, gaugeValue: number): number => {
   const y = (gaugeValue / 100) * 4 - 2
   gauge.indicator.position.y = y
-  return 15 + gaugeValue * 0.6
+  return gaugeToAngleV(gaugeValue)
 }
 
 export const updatePowerGauge = (gauge: GaugeGroup, gaugeValue: number): void => {

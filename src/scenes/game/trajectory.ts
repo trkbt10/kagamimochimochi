@@ -1,17 +1,12 @@
 import * as THREE from 'three'
 import {
   type LaunchParameters,
-  calculatePowerMultiplier,
-  calculateSpeed,
   calculateInitialVelocity
 } from '../../types/launch'
 
-// 後方互換性のため再エクスポート
-export { calculatePowerMultiplier, calculateSpeed }
-
-/** @deprecated LaunchParameters を使用してください */
-export type TrajectoryParams = LaunchParameters & {
+export type TrajectoryInput = LaunchParameters & {
   gravity?: number
+  damping?: number
 }
 
 export type TrajectoryResult = {
@@ -20,13 +15,37 @@ export type TrajectoryResult = {
 }
 
 const DEFAULT_GRAVITY = -9.8
+const DEFAULT_DAMPING = 0.4 // GameScene.tsのlinearDampingと一致
 const TIME_STEP = 0.05
 
+/**
+ * DAI（台）の位置と寸法
+ */
+export const DAI_POSITION = {
+  x: 0,
+  y: -1.75,
+  z: 0
+} as const
+
+export const DAI_HEIGHT = 0.5
+
+/** DAI上面のY座標（ターゲットマーカー配置用） */
+export const DAI_SURFACE_Y = DAI_POSITION.y + DAI_HEIGHT / 2 // -1.5
+
+/**
+ * ターゲット位置（スコア計算用：DAIの中心位置）
+ */
+export const TARGET_POSITION = {
+  x: DAI_POSITION.x,
+  y: DAI_SURFACE_Y,
+  z: DAI_POSITION.z
+} as const
+
 export const calculateTrajectory = (
-  params: TrajectoryParams,
+  params: TrajectoryInput,
   numPoints: number
 ): TrajectoryResult => {
-  const { launchPosition, gravity = DEFAULT_GRAVITY } = params
+  const { launchPosition, gravity = DEFAULT_GRAVITY, damping = DEFAULT_DAMPING } = params
 
   const velocity = calculateInitialVelocity(params)
 
@@ -34,15 +53,27 @@ export const calculateTrajectory = (
   let x = launchPosition.x
   let y = launchPosition.y
   let z = launchPosition.z
+  let velX = velocity.x
   let velY = velocity.y
+  let velZ = velocity.z
+
+  // 減衰係数: CANNON-esのlinearDampingと同様の計算
+  // 各フレームで velocity *= (1 - damping * dt)
+  const dampingFactor = 1 - damping * TIME_STEP
 
   for (let i = 0; i < numPoints; i++) {
     points.push(new THREE.Vector3(x, y, z))
 
-    x += velocity.x * TIME_STEP
+    // 位置を更新
+    x += velX * TIME_STEP
     y += velY * TIME_STEP
-    z += velocity.z * TIME_STEP
+    z += velZ * TIME_STEP
+
+    // 速度を更新（重力 + 減衰）
     velY += gravity * TIME_STEP
+    velX *= dampingFactor
+    velY *= dampingFactor
+    velZ *= dampingFactor
 
     if (y < -2) {
       for (let j = i + 1; j < numPoints; j++) {
@@ -53,7 +84,10 @@ export const calculateTrajectory = (
   }
 
   const lastPoint = points[points.length - 1]
-  const landingDistance = Math.sqrt(lastPoint.x ** 2 + lastPoint.z ** 2)
+  // ターゲット位置からの距離（XZ平面上）
+  const dx = lastPoint.x - TARGET_POSITION.x
+  const dz = lastPoint.z - TARGET_POSITION.z
+  const landingDistance = Math.sqrt(dx ** 2 + dz ** 2)
 
   return { points, landingDistance }
 }
@@ -114,7 +148,7 @@ export const createTargetMarker = (): THREE.Mesh => {
 
   const marker = new THREE.Mesh(geometry, material)
   marker.rotation.x = -Math.PI / 2
-  marker.position.set(0, -1.45, 0)
+  marker.position.set(DAI_POSITION.x, DAI_SURFACE_Y, DAI_POSITION.z)
 
   return marker
 }

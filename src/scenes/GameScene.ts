@@ -15,7 +15,9 @@ import {
   getTrajectoryColor,
   createTrajectoryLine,
   updateTrajectoryLine,
-  createTargetMarker
+  createTargetMarker,
+  TARGET_POSITION,
+  DAI_POSITION
 } from './game/trajectory'
 import {
   type LaunchParameters,
@@ -300,7 +302,7 @@ export class GameScene extends BaseScene {
     const daiShape = new CANNON.Cylinder(1.8, 2, 0.5, 16)
     this.daiBody = new CANNON.Body({ mass: 0, material: this.groundMaterial! })
     this.daiBody.addShape(daiShape)
-    this.daiBody.position.set(0, -1.75, 0)
+    this.daiBody.position.set(DAI_POSITION.x, DAI_POSITION.y, DAI_POSITION.z)
     this.world!.addBody(this.daiBody)
   }
 
@@ -371,7 +373,7 @@ export class GameScene extends BaseScene {
       metalness: 0.2
     })
     this.dai = new THREE.Mesh(daiGeometry, daiMaterial)
-    this.dai.position.set(0, -1.75, 0)
+    this.dai.position.set(DAI_POSITION.x, DAI_POSITION.y, DAI_POSITION.z)
     this.dai.castShadow = true
     this.dai.receiveShadow = true
     this.scene.add(this.dai)
@@ -567,11 +569,11 @@ export class GameScene extends BaseScene {
       x: Math.sin(hRad) * 3,
       y: 10,
       z: 18,
-      duration: 0.5
-    })
-    gsap.to(this.game.camera, {
       duration: 0.5,
       onUpdate: () => {
+        this.game.camera.lookAt(0, 0, 3)
+      },
+      onComplete: () => {
         this.game.camera.lookAt(0, 0, 3)
       }
     })
@@ -630,9 +632,7 @@ export class GameScene extends BaseScene {
 
   private resetForNextLaunch() {
     this.phase = 'direction'
-    this.launchParams.angleH = 0
-    this.launchParams.angleV = 45
-    this.launchParams.power = 50
+    this.launchParams = createDefaultLaunchParameters()
     this.gaugeValue = 50
     this.gaugeDirection = 1
 
@@ -660,11 +660,11 @@ export class GameScene extends BaseScene {
       x: 0,
       y: 12,
       z: 22,
-      duration: 0.5
-    })
-    gsap.to(this.game.camera, {
       duration: 0.5,
       onUpdate: () => {
+        this.game.camera.lookAt(0, 0, 5)
+      },
+      onComplete: () => {
         this.game.camera.lookAt(0, 0, 5)
       }
     })
@@ -698,10 +698,12 @@ export class GameScene extends BaseScene {
   }
 
   private calculateBaseScore(base: { x: number; y: number; z: number }): number {
-    const distFromCenter = Math.sqrt(base.x ** 2 + base.z ** 2)
+    const dx = base.x - TARGET_POSITION.x
+    const dz = base.z - TARGET_POSITION.z
+    const distFromTarget = Math.sqrt(dx ** 2 + dz ** 2)
 
-    if (distFromCenter < 1.5 && base.y > -2 && base.y < 0) return 30
-    if (distFromCenter < 3) return 15
+    if (distFromTarget < 1.5 && base.y > -2 && base.y < 0) return 30
+    if (distFromTarget < 3) return 15
     return 0
   }
 
