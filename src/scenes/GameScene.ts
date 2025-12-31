@@ -26,6 +26,13 @@ export class GameScene extends BaseScene {
   private groundBody: CANNON.Body | null = null
   private daiBody: CANNON.Body | null = null
 
+  // Physics materials
+  private mochiMaterial: CANNON.Material | null = null
+  private groundMaterial: CANNON.Material | null = null
+
+  // Landing timeout
+  private flyingStartTime = 0
+
   private launchedObjects: LaunchedObject[] = []
   private currentObject: LaunchedObject | null = null
   private currentType: MochiType = 'base'
@@ -126,8 +133,16 @@ export class GameScene extends BaseScene {
     if (this.phase === 'flying' && this.currentObject) {
       const velocity = this.currentObject.body.velocity
       const speed = Math.sqrt(velocity.x ** 2 + velocity.y ** 2 + velocity.z ** 2)
+      const yPos = this.currentObject.body.position.y
+      const timeSinceLaunch = (Date.now() - this.flyingStartTime) / 1000
 
-      if (speed < 0.1 && this.currentObject.body.position.y < 5) {
+      // 着地判定：速度が遅くなったか、地面付近にいるか、時間が経ったか
+      const isSlowEnough = speed < 0.5
+      const isNearGround = yPos < 3
+      const hasLandedOnSomething = yPos < 2 && speed < 1.5
+      const timeoutReached = timeSinceLaunch > 8 // 8秒のタイムアウト
+
+      if ((isSlowEnough && isNearGround) || hasLandedOnSomething || timeoutReached) {
         this.onObjectLanded()
       }
     }
@@ -204,8 +219,8 @@ export class GameScene extends BaseScene {
     const vy = Math.sin(vRad) * speed
     const vz = -Math.cos(hRad) * speed * Math.cos(vRad)
 
-    // Gravity
-    const gravity = -15
+    // Gravity (setupPhysics()と同じ値)
+    const gravity = -9.8
 
     // Calculate trajectory points
     const dt = 0.05 // Time step
@@ -257,13 +272,13 @@ export class GameScene extends BaseScene {
   }
 
   private setupCamera() {
-    // Position camera behind and above the launch point, looking at the target
-    // This allows seeing both launch position and dai (target)
+    // Position camera to see both launch point (z=10) and dai (z=0)
     const camera = this.game.camera
 
-    // Camera positioned behind launch point, elevated, looking at target area
-    camera.position.set(0, 5, 18)
-    camera.lookAt(0, 0, 0) // Look at center (dai position)
+    // カメラを斜め上から俯瞰するように配置
+    // 発射点(0, 0, 10)と台(0, -1.75, 0)の両方が見えるように
+    camera.position.set(0, 12, 22)
+    camera.lookAt(0, 0, 5) // 発射点と台の中間を見る
   }
 
   private create3DGauges() {
@@ -561,32 +576,41 @@ export class GameScene extends BaseScene {
 
   private setupPhysics() {
     this.world = new CANNON.World()
-    this.world.gravity.set(0, -15, 0)
+    this.world.gravity.set(0, -9.8, 0) // より自然な重力に調整
     this.world.broadphase = new CANNON.NaiveBroadphase()
+
+    // Create physics materials
+    this.mochiMaterial = new CANNON.Material('mochi')
+    this.groundMaterial = new CANNON.Material('ground')
 
     // Ground
     const groundShape = new CANNON.Plane()
-    this.groundBody = new CANNON.Body({ mass: 0, material: new CANNON.Material() })
+    this.groundBody = new CANNON.Body({ mass: 0, material: this.groundMaterial })
     this.groundBody.addShape(groundShape)
     this.groundBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2)
     this.groundBody.position.set(0, -2, 0)
     this.world.addBody(this.groundBody)
 
-    // Dai (platform)
+    // Dai (platform) - 台にもgroundMaterialを適用
     const daiShape = new CANNON.Cylinder(1.8, 2, 0.5, 16)
-    this.daiBody = new CANNON.Body({ mass: 0, material: new CANNON.Material() })
+    this.daiBody = new CANNON.Body({ mass: 0, material: this.groundMaterial })
     this.daiBody.addShape(daiShape)
     this.daiBody.position.set(0, -1.75, 0)
     this.world.addBody(this.daiBody)
 
-    // Contact material
-    const mochiMaterial = new CANNON.Material('mochi')
-    const groundMaterial = new CANNON.Material('ground')
-    const contactMaterial = new CANNON.ContactMaterial(mochiMaterial, groundMaterial, {
-      friction: 0.8,
-      restitution: 0.3
+    // Contact material: モチと地面/台
+    const mochiGroundContact = new CANNON.ContactMaterial(this.mochiMaterial, this.groundMaterial, {
+      friction: 0.9,        // 高い摩擦で滑りにくく
+      restitution: 0.15     // 反発を低くしてバウンドを抑える
     })
-    this.world.addContactMaterial(contactMaterial)
+    this.world.addContactMaterial(mochiGroundContact)
+
+    // Contact material: モチ同士 - 粘り気を高くして積みやすくする
+    const mochiMochiContact = new CANNON.ContactMaterial(this.mochiMaterial, this.mochiMaterial, {
+      friction: 1.5,        // 非常に高い摩擦でモチ同士が滑りにくい
+      restitution: 0.05     // ほとんど弾まない
+    })
+    this.world.addContactMaterial(mochiMochiContact)
   }
 
   private setupScene() {
@@ -774,6 +798,7 @@ export class GameScene extends BaseScene {
 
   private launch() {
     this.phase = 'flying'
+    this.flyingStartTime = Date.now() // 飛行開始時間を記録
     this.game.audioManager.playLaunch()
 
     // Hide all gauges and trajectory
@@ -811,10 +836,18 @@ export class GameScene extends BaseScene {
       (Math.random() - 0.5) * 5
     )
 
+    // 飛行中のカメラ：少しだけ追従
     gsap.to(this.game.camera.position, {
-      x: Math.sin(hRad) * 5,
-      z: 12 - Math.cos(hRad) * 3,
+      x: Math.sin(hRad) * 3,
+      y: 10,
+      z: 18,
       duration: 0.5
+    })
+    gsap.to(this.game.camera, {
+      duration: 0.5,
+      onUpdate: () => {
+        this.game.camera.lookAt(0, 0, 3)
+      }
     })
   }
 
@@ -865,7 +898,12 @@ export class GameScene extends BaseScene {
     mesh.position.copy(this.launchPosition)
     this.scene.add(mesh)
 
-    const body = new CANNON.Body({ mass })
+    const body = new CANNON.Body({
+      mass,
+      material: this.mochiMaterial!,
+      linearDamping: 0.4,    // 空気抵抗で減速
+      angularDamping: 0.6    // 回転も減衰
+    })
     body.addShape(shape)
     body.position.set(this.launchPosition.x, this.launchPosition.y, this.launchPosition.z)
     this.world!.addBody(body)
@@ -930,12 +968,18 @@ export class GameScene extends BaseScene {
       this.instruction.textContent = 'タップで方向を決定！'
     }
 
-    // Reset camera to good viewing position
+    // Reset camera to good viewing position (setupCamera()と同じ)
     gsap.to(this.game.camera.position, {
       x: 0,
-      y: 5,
-      z: 18,
+      y: 12,
+      z: 22,
       duration: 0.5
+    })
+    gsap.to(this.game.camera, {
+      duration: 0.5,
+      onUpdate: () => {
+        this.game.camera.lookAt(0, 0, 5)
+      }
     })
   }
 
