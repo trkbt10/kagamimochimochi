@@ -34,18 +34,21 @@ export class IntroScene extends BaseScene {
   private boundOnPointerMove: (e: PointerEvent) => void
   private boundOnPointerDown: (e: PointerEvent) => void
   private boundOnPointerUp: (e: PointerEvent) => void
+  private boundOnResize: () => void
 
   constructor(game: Game) {
     super(game)
     this.boundOnPointerMove = this.onPointerMove.bind(this)
     this.boundOnPointerDown = this.onPointerDown.bind(this)
     this.boundOnPointerUp = this.onPointerUp.bind(this)
+    this.boundOnResize = this.adjustForScreenSize.bind(this)
   }
 
   async enter() {
     this.setupScene()
     this.buildUI3D()
     this.setupEventListeners()
+    this.adjustForScreenSize()
     this.animateIntro()
   }
 
@@ -79,28 +82,33 @@ export class IntroScene extends BaseScene {
   }
 
   private setupScene() {
-    // Background gradient
-    this.scene.background = new THREE.Color(0x1a0505)
+    // Background gradient - slightly brighter
+    this.scene.background = new THREE.Color(0x2d1010)
 
-    // Fog for depth
-    this.scene.fog = new THREE.FogExp2(0x1a0505, 0.05)
+    // Fog for depth - reduced density for better visibility
+    this.scene.fog = new THREE.FogExp2(0x2d1010, 0.02)
 
-    // Ambient light
-    const ambient = new THREE.AmbientLight(0xffffff, 0.3)
+    // Ambient light - brighter for better visibility
+    const ambient = new THREE.AmbientLight(0xffffff, 0.6)
     this.scene.add(ambient)
 
-    // Main spotlight
-    const spotlight = new THREE.SpotLight(0xffd700, 2, 30, Math.PI / 4, 0.5, 1)
+    // Main spotlight - increased intensity
+    const spotlight = new THREE.SpotLight(0xffd700, 3, 40, Math.PI / 4, 0.5, 1)
     spotlight.position.set(0, 15, 5)
     spotlight.castShadow = true
     this.scene.add(spotlight)
 
-    // Point lights for ambiance
-    const redLight = new THREE.PointLight(0xff3333, 1, 20)
+    // Additional front light for UI visibility
+    const frontLight = new THREE.DirectionalLight(0xffffff, 0.5)
+    frontLight.position.set(0, 5, 10)
+    this.scene.add(frontLight)
+
+    // Point lights for ambiance - increased intensity
+    const redLight = new THREE.PointLight(0xff3333, 1.5, 25)
     redLight.position.set(-5, 3, -3)
     this.scene.add(redLight)
 
-    const goldLight = new THREE.PointLight(0xffd700, 1, 20)
+    const goldLight = new THREE.PointLight(0xffd700, 1.5, 25)
     goldLight.position.set(5, 3, -3)
     this.scene.add(goldLight)
 
@@ -405,6 +413,7 @@ export class IntroScene extends BaseScene {
     canvas.addEventListener('pointermove', this.boundOnPointerMove)
     canvas.addEventListener('pointerdown', this.boundOnPointerDown)
     canvas.addEventListener('pointerup', this.boundOnPointerUp)
+    window.addEventListener('resize', this.boundOnResize)
   }
 
   private removeEventListeners() {
@@ -412,6 +421,7 @@ export class IntroScene extends BaseScene {
     canvas.removeEventListener('pointermove', this.boundOnPointerMove)
     canvas.removeEventListener('pointerdown', this.boundOnPointerDown)
     canvas.removeEventListener('pointerup', this.boundOnPointerUp)
+    window.removeEventListener('resize', this.boundOnResize)
   }
 
   private updateMousePosition(e: PointerEvent) {
@@ -557,6 +567,32 @@ export class IntroScene extends BaseScene {
     }
 
     return sliders
+  }
+
+  private adjustForScreenSize() {
+    const aspect = window.innerWidth / window.innerHeight
+
+    // モバイル（縦長画面）の場合、カメラを引いてUIを収める
+    if (aspect < 1) {
+      // 縦画面: カメラを遠くに配置
+      const zoomOut = 1 / aspect
+      this.game.camera.position.set(0, 5, 12 + (zoomOut - 1) * 8)
+      this.game.camera.lookAt(0, 2, 0)
+
+      // UIグループのスケールを調整
+      if (this.uiGroup) {
+        const scale = Math.max(0.6, aspect)
+        this.uiGroup.scale.set(scale, scale, scale)
+      }
+    } else {
+      // 横画面: 通常の設定
+      this.game.camera.position.set(0, 5, 12)
+      this.game.camera.lookAt(0, 2, 0)
+
+      if (this.uiGroup) {
+        this.uiGroup.scale.set(1, 1, 1)
+      }
+    }
   }
 
   private animateIntro() {
