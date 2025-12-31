@@ -13,6 +13,14 @@ interface LaunchedObject {
   type: MochiType
 }
 
+interface GaugeGroup {
+  group: THREE.Group
+  track: THREE.Mesh
+  indicator: THREE.Mesh
+  centerMark: THREE.Mesh
+  fill?: THREE.Mesh
+}
+
 export class GameScene extends BaseScene {
   private world: CANNON.World | null = null
   private groundBody: CANNON.Body | null = null
@@ -37,16 +45,15 @@ export class GameScene extends BaseScene {
 
   private dai: THREE.Mesh | null = null
 
-  // UI elements
+  // 3D Gauge elements
+  private directionGauge: GaugeGroup | null = null
+  private elevationGauge: GaugeGroup | null = null
+  private powerGauge: GaugeGroup | null = null
+  private gaugeContainer: THREE.Group | null = null
+
+  // HTML UI elements (minimal - only text)
   private phaseIndicator: HTMLElement | null = null
-  private directionGauge: HTMLElement | null = null
-  private directionGaugeFill: HTMLElement | null = null
-  private elevationGauge: HTMLElement | null = null
-  private elevationGaugeFill: HTMLElement | null = null
-  private powerGauge: HTMLElement | null = null
-  private powerGaugeFill: HTMLElement | null = null
   private instruction: HTMLElement | null = null
-  private gaugeLabel: HTMLElement | null = null
 
   constructor(game: Game) {
     super(game)
@@ -56,6 +63,7 @@ export class GameScene extends BaseScene {
     this.resetState()
     this.setupPhysics()
     this.setupScene()
+    this.create3DGauges()
     this.buildUI()
     this.setupEventListeners()
     this.game.audioManager.playBgm()
@@ -96,7 +104,7 @@ export class GameScene extends BaseScene {
         this.gaugeValue = 0
         this.gaugeDirection = 1
       }
-      this.updateCurrentGauge()
+      this.update3DGauges()
     }
 
     // Check if object has landed
@@ -110,17 +118,273 @@ export class GameScene extends BaseScene {
     }
   }
 
-  private updateCurrentGauge() {
-    if (this.phase === 'direction' && this.directionGaugeFill) {
-      this.directionGaugeFill.style.left = `${this.gaugeValue}%`
-      // Preview the angle in real-time
-      this.angleH = (this.gaugeValue - 50) * 1.2 // -60 to 60
-    } else if (this.phase === 'elevation' && this.elevationGaugeFill) {
-      this.elevationGaugeFill.style.bottom = `${this.gaugeValue}%`
-      // Preview the angle in real-time
-      this.angleV = 15 + this.gaugeValue * 0.6 // 15 to 75
-    } else if (this.phase === 'power' && this.powerGaugeFill) {
-      this.powerGaugeFill.style.height = `${this.gaugeValue}%`
+  private create3DGauges() {
+    this.gaugeContainer = new THREE.Group()
+    this.gaugeContainer.position.set(0, 3, 12)
+    this.scene.add(this.gaugeContainer)
+
+    // Create direction gauge (horizontal)
+    this.directionGauge = this.createHorizontalGauge()
+    this.directionGauge.group.position.set(0, 0.5, 0)
+    this.gaugeContainer.add(this.directionGauge.group)
+
+    // Create elevation gauge (vertical)
+    this.elevationGauge = this.createVerticalGauge()
+    this.elevationGauge.group.position.set(0, 0.5, 0)
+    this.elevationGauge.group.visible = false
+    this.gaugeContainer.add(this.elevationGauge.group)
+
+    // Create power gauge (vertical with fill)
+    this.powerGauge = this.createPowerGauge()
+    this.powerGauge.group.position.set(0, 0.5, 0)
+    this.powerGauge.group.visible = false
+    this.gaugeContainer.add(this.powerGauge.group)
+  }
+
+  private createHorizontalGauge(): GaugeGroup {
+    const group = new THREE.Group()
+
+    // Track (background bar)
+    const trackGeometry = new THREE.BoxGeometry(6, 0.3, 0.2)
+    const trackMaterial = new THREE.MeshStandardMaterial({
+      color: 0x333333,
+      roughness: 0.8
+    })
+    const track = new THREE.Mesh(trackGeometry, trackMaterial)
+    group.add(track)
+
+    // Track border (glow effect)
+    const borderGeometry = new THREE.BoxGeometry(6.1, 0.4, 0.1)
+    const borderMaterial = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.5
+    })
+    const border = new THREE.Mesh(borderGeometry, borderMaterial)
+    border.position.z = -0.1
+    group.add(border)
+
+    // Center mark
+    const centerMarkGeometry = new THREE.BoxGeometry(0.1, 0.6, 0.25)
+    const centerMarkMaterial = new THREE.MeshBasicMaterial({ color: 0xffd700 })
+    const centerMark = new THREE.Mesh(centerMarkGeometry, centerMarkMaterial)
+    centerMark.position.z = 0.05
+    group.add(centerMark)
+
+    // Indicator (moving marker)
+    const indicatorGeometry = new THREE.BoxGeometry(0.15, 0.5, 0.3)
+    const indicatorMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 })
+    const indicator = new THREE.Mesh(indicatorGeometry, indicatorMaterial)
+    indicator.position.z = 0.1
+
+    // Add glow to indicator
+    const glowGeometry = new THREE.BoxGeometry(0.25, 0.6, 0.05)
+    const glowMaterial = new THREE.MeshBasicMaterial({
+      color: 0xff4444,
+      transparent: true,
+      opacity: 0.6
+    })
+    const glow = new THREE.Mesh(glowGeometry, glowMaterial)
+    glow.position.z = 0.2
+    indicator.add(glow)
+
+    group.add(indicator)
+
+    // Add label text using sprite
+    const labelSprite = this.createTextSprite('◀ 方向 ▶', 0.4)
+    labelSprite.position.set(0, 0.5, 0)
+    group.add(labelSprite)
+
+    return { group, track, indicator, centerMark }
+  }
+
+  private createVerticalGauge(): GaugeGroup {
+    const group = new THREE.Group()
+
+    // Track (background bar)
+    const trackGeometry = new THREE.BoxGeometry(0.3, 4, 0.2)
+    const trackMaterial = new THREE.MeshStandardMaterial({
+      color: 0x333333,
+      roughness: 0.8
+    })
+    const track = new THREE.Mesh(trackGeometry, trackMaterial)
+    group.add(track)
+
+    // Track border
+    const borderGeometry = new THREE.BoxGeometry(0.4, 4.1, 0.1)
+    const borderMaterial = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.5
+    })
+    const border = new THREE.Mesh(borderGeometry, borderMaterial)
+    border.position.z = -0.1
+    group.add(border)
+
+    // Center mark
+    const centerMarkGeometry = new THREE.BoxGeometry(0.6, 0.1, 0.25)
+    const centerMarkMaterial = new THREE.MeshBasicMaterial({ color: 0xffd700 })
+    const centerMark = new THREE.Mesh(centerMarkGeometry, centerMarkMaterial)
+    centerMark.position.z = 0.05
+    group.add(centerMark)
+
+    // Indicator (moving marker)
+    const indicatorGeometry = new THREE.BoxGeometry(0.5, 0.15, 0.3)
+    const indicatorMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 })
+    const indicator = new THREE.Mesh(indicatorGeometry, indicatorMaterial)
+    indicator.position.z = 0.1
+
+    // Add glow
+    const glowGeometry = new THREE.BoxGeometry(0.6, 0.25, 0.05)
+    const glowMaterial = new THREE.MeshBasicMaterial({
+      color: 0xff4444,
+      transparent: true,
+      opacity: 0.6
+    })
+    const glow = new THREE.Mesh(glowGeometry, glowMaterial)
+    glow.position.z = 0.2
+    indicator.add(glow)
+
+    group.add(indicator)
+
+    // Add label
+    const labelSprite = this.createTextSprite('角度 ▲', 0.4)
+    labelSprite.position.set(0, 2.5, 0)
+    group.add(labelSprite)
+
+    return { group, track, indicator, centerMark }
+  }
+
+  private createPowerGauge(): GaugeGroup {
+    const group = new THREE.Group()
+
+    // Track (background with gradient effect using segments)
+    const trackGeometry = new THREE.BoxGeometry(0.5, 4, 0.2)
+    const trackMaterial = new THREE.MeshStandardMaterial({
+      color: 0x222222,
+      roughness: 0.8
+    })
+    const track = new THREE.Mesh(trackGeometry, trackMaterial)
+    group.add(track)
+
+    // Track border
+    const borderGeometry = new THREE.BoxGeometry(0.6, 4.1, 0.1)
+    const borderMaterial = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.5
+    })
+    const border = new THREE.Mesh(borderGeometry, borderMaterial)
+    border.position.z = -0.1
+    group.add(border)
+
+    // Gradient segments for power visualization
+    const segments = 20
+    const segmentHeight = 4 / segments
+    for (let i = 0; i < segments; i++) {
+      const t = i / segments
+      const segGeometry = new THREE.BoxGeometry(0.4, segmentHeight * 0.9, 0.15)
+
+      // Green to yellow to red gradient
+      const color = new THREE.Color()
+      if (t < 0.5) {
+        color.setHSL(0.33 - t * 0.33, 1, 0.5) // Green to Yellow
+      } else {
+        color.setHSL(0.17 - (t - 0.5) * 0.34, 1, 0.5) // Yellow to Red
+      }
+
+      const segMaterial = new THREE.MeshBasicMaterial({
+        color,
+        transparent: true,
+        opacity: 0.3
+      })
+      const segment = new THREE.Mesh(segGeometry, segMaterial)
+      segment.position.y = -2 + segmentHeight * 0.5 + i * segmentHeight
+      segment.position.z = 0.05
+      group.add(segment)
+    }
+
+    // Fill bar (dynamic height)
+    const fillGeometry = new THREE.BoxGeometry(0.4, 0.01, 0.2)
+    const fillMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00 })
+    const fill = new THREE.Mesh(fillGeometry, fillMaterial)
+    fill.position.y = -2
+    fill.position.z = 0.1
+    group.add(fill)
+
+    // Dummy indicator and centerMark for interface
+    const indicator = new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.01, 0.01))
+    indicator.visible = false
+    group.add(indicator)
+
+    const centerMark = new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.01, 0.01))
+    centerMark.visible = false
+    group.add(centerMark)
+
+    // Add label
+    const labelSprite = this.createTextSprite('パワー', 0.4)
+    labelSprite.position.set(0, 2.5, 0)
+    group.add(labelSprite)
+
+    return { group, track, indicator, centerMark, fill }
+  }
+
+  private createTextSprite(text: string, size: number): THREE.Sprite {
+    const canvas = document.createElement('canvas')
+    const context = canvas.getContext('2d')!
+    canvas.width = 512
+    canvas.height = 128
+
+    context.fillStyle = 'rgba(0, 0, 0, 0)'
+    context.fillRect(0, 0, canvas.width, canvas.height)
+
+    context.font = 'bold 64px sans-serif'
+    context.fillStyle = '#FFD700'
+    context.textAlign = 'center'
+    context.textBaseline = 'middle'
+    context.strokeStyle = '#000000'
+    context.lineWidth = 4
+    context.strokeText(text, canvas.width / 2, canvas.height / 2)
+    context.fillText(text, canvas.width / 2, canvas.height / 2)
+
+    const texture = new THREE.CanvasTexture(canvas)
+    const material = new THREE.SpriteMaterial({ map: texture, transparent: true })
+    const sprite = new THREE.Sprite(material)
+    sprite.scale.set(size * 4, size, 1)
+
+    return sprite
+  }
+
+  private update3DGauges() {
+    if (this.phase === 'direction' && this.directionGauge) {
+      // Move indicator along horizontal track (-3 to 3)
+      const x = (this.gaugeValue / 100) * 6 - 3
+      this.directionGauge.indicator.position.x = x
+      // Preview angle
+      this.angleH = (this.gaugeValue - 50) * 1.2
+
+    } else if (this.phase === 'elevation' && this.elevationGauge) {
+      // Move indicator along vertical track (-2 to 2)
+      const y = (this.gaugeValue / 100) * 4 - 2
+      this.elevationGauge.indicator.position.y = y
+      // Preview angle
+      this.angleV = 15 + this.gaugeValue * 0.6
+
+    } else if (this.phase === 'power' && this.powerGauge && this.powerGauge.fill) {
+      // Scale fill bar height
+      const height = (this.gaugeValue / 100) * 4
+      this.powerGauge.fill.scale.y = Math.max(height * 100, 1)
+      this.powerGauge.fill.position.y = -2 + height / 2
+
+      // Update fill color based on power
+      const t = this.gaugeValue / 100
+      const color = new THREE.Color()
+      if (t < 0.5) {
+        color.setHSL(0.33 - t * 0.33, 1, 0.5)
+      } else {
+        color.setHSL(0.17 - (t - 0.5) * 0.34, 1, 0.5)
+      }
+      ;(this.powerGauge.fill.material as THREE.MeshBasicMaterial).color = color
     }
   }
 
@@ -138,7 +402,7 @@ export class GameScene extends BaseScene {
 
   private setupPhysics() {
     this.world = new CANNON.World()
-    this.world.gravity.set(0, -15, 0) // Slightly stronger gravity for "heavier" feel
+    this.world.gravity.set(0, -15, 0)
     this.world.broadphase = new CANNON.NaiveBroadphase()
 
     // Ground
@@ -149,20 +413,19 @@ export class GameScene extends BaseScene {
     this.groundBody.position.set(0, -2, 0)
     this.world.addBody(this.groundBody)
 
-    // Dai (platform for kagamimochi)
+    // Dai (platform)
     const daiShape = new CANNON.Cylinder(1.8, 2, 0.5, 16)
     this.daiBody = new CANNON.Body({ mass: 0, material: new CANNON.Material() })
     this.daiBody.addShape(daiShape)
     this.daiBody.position.set(0, -1.75, 0)
     this.world.addBody(this.daiBody)
 
-    // Add contact material for bounciness
+    // Contact material
     const mochiMaterial = new CANNON.Material('mochi')
     const groundMaterial = new CANNON.Material('ground')
-
     const contactMaterial = new CANNON.ContactMaterial(mochiMaterial, groundMaterial, {
       friction: 0.8,
-      restitution: 0.3 // Some bounce
+      restitution: 0.3
     })
     this.world.addContactMaterial(contactMaterial)
   }
@@ -214,7 +477,7 @@ export class GameScene extends BaseScene {
     this.dai.receiveShadow = true
     this.scene.add(this.dai)
 
-    // Target indicator (subtle glow on dai)
+    // Target glow
     const targetGlow = new THREE.PointLight(0xffd700, 0.5, 5)
     targetGlow.position.set(0, -1, 0)
     this.scene.add(targetGlow)
@@ -222,7 +485,7 @@ export class GameScene extends BaseScene {
     // Create aim arrow
     this.createAimArrow()
 
-    // Position camera for mobile-friendly view
+    // Position camera
     this.game.camera.position.set(0, 6, 15)
     this.game.camera.lookAt(0, 0, 0)
   }
@@ -230,7 +493,6 @@ export class GameScene extends BaseScene {
   private createAimArrow() {
     this.aimArrow = new THREE.Group()
 
-    // Arrow body
     const arrowBodyGeometry = new THREE.CylinderGeometry(0.1, 0.1, 2, 8)
     const arrowMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00 })
     const arrowBody = new THREE.Mesh(arrowBodyGeometry, arrowMaterial)
@@ -238,7 +500,6 @@ export class GameScene extends BaseScene {
     arrowBody.position.z = 1
     this.aimArrow.add(arrowBody)
 
-    // Arrow head
     const arrowHeadGeometry = new THREE.ConeGeometry(0.2, 0.5, 8)
     const arrowHead = new THREE.Mesh(arrowHeadGeometry, arrowMaterial)
     arrowHead.rotation.x = Math.PI / 2
@@ -255,7 +516,6 @@ export class GameScene extends BaseScene {
     const hRad = (this.angleH * Math.PI) / 180
     const vRad = (this.angleV * Math.PI) / 180
 
-    // Point arrow in launch direction
     this.aimArrow.rotation.y = -hRad
     this.aimArrow.rotation.x = -vRad
   }
@@ -266,38 +526,6 @@ export class GameScene extends BaseScene {
         <div class="phase-indicator">
           <span id="phaseText">${this.getPhaseText()}</span>
         </div>
-
-        <!-- Golf-style gauges -->
-        <div class="golf-gauge-container">
-          <!-- Direction gauge (horizontal) -->
-          <div class="golf-gauge direction-gauge" id="directionGauge">
-            <div class="gauge-label">◀ 方向 ▶</div>
-            <div class="gauge-track horizontal">
-              <div class="gauge-center-mark"></div>
-              <div class="gauge-fill-indicator" id="directionGaugeFill"></div>
-            </div>
-          </div>
-
-          <!-- Elevation gauge (vertical) -->
-          <div class="golf-gauge elevation-gauge" id="elevationGauge" style="display: none;">
-            <div class="gauge-label">角度 ▲</div>
-            <div class="gauge-track vertical">
-              <div class="gauge-center-mark"></div>
-              <div class="gauge-fill-indicator" id="elevationGaugeFill"></div>
-            </div>
-          </div>
-
-          <!-- Power gauge (vertical) -->
-          <div class="golf-gauge power-gauge" id="powerGauge" style="display: none;">
-            <div class="gauge-label">パワー</div>
-            <div class="gauge-track vertical power">
-              <div class="gauge-fill-bar" id="powerGaugeFill"></div>
-            </div>
-          </div>
-        </div>
-
-        <div class="gauge-value-display" id="gaugeLabel"></div>
-
         <div class="instruction">
           <span id="instructionText">タップで方向を決定！</span>
         </div>
@@ -305,14 +533,7 @@ export class GameScene extends BaseScene {
     `)
 
     this.phaseIndicator = this.ui!.querySelector('#phaseText')
-    this.directionGauge = this.ui!.querySelector('#directionGauge')
-    this.directionGaugeFill = this.ui!.querySelector('#directionGaugeFill')
-    this.elevationGauge = this.ui!.querySelector('#elevationGauge')
-    this.elevationGaugeFill = this.ui!.querySelector('#elevationGaugeFill')
-    this.powerGauge = this.ui!.querySelector('#powerGauge')
-    this.powerGaugeFill = this.ui!.querySelector('#powerGaugeFill')
     this.instruction = this.ui!.querySelector('#instructionText')
-    this.gaugeLabel = this.ui!.querySelector('#gaugeLabel')
   }
 
   private getPhaseText(): string {
@@ -321,11 +542,8 @@ export class GameScene extends BaseScene {
   }
 
   private setupEventListeners() {
-    // Touch/Click to confirm gauge
     window.addEventListener('touchend', this.onConfirmGauge)
     window.addEventListener('click', this.onConfirmGauge)
-
-    // Keyboard for desktop
     window.addEventListener('keydown', this.onKeyDown)
   }
 
@@ -361,15 +579,13 @@ export class GameScene extends BaseScene {
   }
 
   private confirmDirection() {
-    // Lock in the horizontal angle
-    this.angleH = (this.gaugeValue - 50) * 1.2 // -60 to 60
-    this.game.audioManager.playLand() // Confirmation sound
+    this.angleH = (this.gaugeValue - 50) * 1.2
+    this.game.audioManager.playLand()
 
-    // Hide direction gauge, show elevation gauge
-    if (this.directionGauge) this.directionGauge.style.display = 'none'
-    if (this.elevationGauge) this.elevationGauge.style.display = 'flex'
+    // Switch gauges
+    if (this.directionGauge) this.directionGauge.group.visible = false
+    if (this.elevationGauge) this.elevationGauge.group.visible = true
 
-    // Reset gauge for next phase
     this.gaugeValue = 50
     this.gaugeDirection = 1
     this.phase = 'elevation'
@@ -377,21 +593,16 @@ export class GameScene extends BaseScene {
     if (this.instruction) {
       this.instruction.textContent = 'タップで角度を決定！'
     }
-    if (this.gaugeLabel) {
-      this.gaugeLabel.textContent = `方向: ${Math.round(this.angleH)}°`
-    }
   }
 
   private confirmElevation() {
-    // Lock in the vertical angle
-    this.angleV = 15 + this.gaugeValue * 0.6 // 15 to 75
-    this.game.audioManager.playLand() // Confirmation sound
+    this.angleV = 15 + this.gaugeValue * 0.6
+    this.game.audioManager.playLand()
 
-    // Hide elevation gauge, show power gauge
-    if (this.elevationGauge) this.elevationGauge.style.display = 'none'
-    if (this.powerGauge) this.powerGauge.style.display = 'flex'
+    // Switch gauges
+    if (this.elevationGauge) this.elevationGauge.group.visible = false
+    if (this.powerGauge) this.powerGauge.group.visible = true
 
-    // Reset gauge for next phase
     this.gaugeValue = 0
     this.gaugeDirection = 1
     this.phase = 'power'
@@ -399,13 +610,9 @@ export class GameScene extends BaseScene {
     if (this.instruction) {
       this.instruction.textContent = 'タップでパワーを決定！'
     }
-    if (this.gaugeLabel) {
-      this.gaugeLabel.textContent = `方向: ${Math.round(this.angleH)}° / 角度: ${Math.round(this.angleV)}°`
-    }
   }
 
   private confirmPowerAndLaunch() {
-    // Lock in the power
     this.power = this.gaugeValue
     this.launch()
   }
@@ -415,34 +622,24 @@ export class GameScene extends BaseScene {
     this.game.audioManager.playLaunch()
 
     // Hide all gauges
-    if (this.directionGauge) this.directionGauge.style.display = 'none'
-    if (this.elevationGauge) this.elevationGauge.style.display = 'none'
-    if (this.powerGauge) this.powerGauge.style.display = 'none'
+    if (this.gaugeContainer) this.gaugeContainer.visible = false
+    if (this.aimArrow) this.aimArrow.visible = false
 
     if (this.instruction) {
       this.instruction.textContent = '飛んでいます...'
     }
-    if (this.gaugeLabel) {
-      this.gaugeLabel.textContent = `パワー: ${Math.round(this.power)}%`
-    }
-    if (this.aimArrow) {
-      this.aimArrow.visible = false
-    }
 
-    // Create the object to launch
+    // Create object
     const obj = this.createLaunchObject()
     this.currentObject = obj
     this.launchedObjects.push(obj)
 
-    // Calculate launch velocity
-    // Make it very difficult - small power window for success
-    const powerMultiplier = 0.12 + (this.power / 100) * 0.15 // Very narrow range
+    // Calculate velocity
+    const powerMultiplier = 0.12 + (this.power / 100) * 0.15
     const hRad = (this.angleH * Math.PI) / 180
     const vRad = (this.angleV * Math.PI) / 180
-
     const speed = 8 + powerMultiplier * 20
 
-    // Add some randomness to make it more chaotic (クソゲー factor)
     const randomX = (Math.random() - 0.5) * 2
     const randomZ = (Math.random() - 0.5) * 1
 
@@ -452,14 +649,12 @@ export class GameScene extends BaseScene {
       -Math.cos(hRad) * speed * Math.cos(vRad) + randomZ
     )
 
-    // Add random spin (even more クソゲー)
     obj.body.angularVelocity.set(
       (Math.random() - 0.5) * 5,
       (Math.random() - 0.5) * 5,
       (Math.random() - 0.5) * 5
     )
 
-    // Animate camera to follow
     gsap.to(this.game.camera.position, {
       x: Math.sin(hRad) * 5,
       z: 12 - Math.cos(hRad) * 3,
@@ -530,7 +725,6 @@ export class GameScene extends BaseScene {
       this.instruction.textContent = '着地！'
     }
 
-    // Wait a moment then proceed
     setTimeout(() => {
       this.proceedToNextObject()
     }, 1500)
@@ -542,13 +736,12 @@ export class GameScene extends BaseScene {
     } else if (this.currentType === 'top') {
       this.currentType = 'mikan'
     } else {
-      // All objects launched, calculate score
       this.phase = 'complete'
       this.calculateAndShowResult()
       return
     }
 
-    // Reset for next launch - start with direction phase
+    // Reset for next launch
     this.phase = 'direction'
     this.angleH = 0
     this.angleV = 45
@@ -556,10 +749,18 @@ export class GameScene extends BaseScene {
     this.gaugeValue = 50
     this.gaugeDirection = 1
 
-    // Show direction gauge, hide others
-    if (this.directionGauge) this.directionGauge.style.display = 'flex'
-    if (this.elevationGauge) this.elevationGauge.style.display = 'none'
-    if (this.powerGauge) this.powerGauge.style.display = 'none'
+    // Show gauges again
+    if (this.gaugeContainer) this.gaugeContainer.visible = true
+    if (this.directionGauge) this.directionGauge.group.visible = true
+    if (this.elevationGauge) this.elevationGauge.group.visible = false
+    if (this.powerGauge) {
+      this.powerGauge.group.visible = false
+      // Reset power fill
+      if (this.powerGauge.fill) {
+        this.powerGauge.fill.scale.y = 1
+        this.powerGauge.fill.position.y = -2
+      }
+    }
 
     if (this.aimArrow) {
       this.aimArrow.visible = true
@@ -571,11 +772,7 @@ export class GameScene extends BaseScene {
     if (this.instruction) {
       this.instruction.textContent = 'タップで方向を決定！'
     }
-    if (this.gaugeLabel) {
-      this.gaugeLabel.textContent = ''
-    }
 
-    // Reset camera
     gsap.to(this.game.camera.position, {
       x: 0,
       y: 6,
@@ -586,13 +783,10 @@ export class GameScene extends BaseScene {
 
   private calculateAndShowResult() {
     const score = this.calculateScore()
-
-    // Transition to result scene
     this.game.sceneManager.switchTo('result', { score })
   }
 
   private calculateScore(): number {
-    // Find positions of all objects
     const positions = this.launchedObjects.map(obj => ({
       type: obj.type,
       x: obj.body.position.x,
@@ -608,7 +802,6 @@ export class GameScene extends BaseScene {
 
     let score = 0
 
-    // Check if base is on dai (center)
     const baseDistFromCenter = Math.sqrt(base.x ** 2 + base.z ** 2)
     if (baseDistFromCenter < 1.5 && base.y > -2 && base.y < 0) {
       score += 30
@@ -616,7 +809,6 @@ export class GameScene extends BaseScene {
       score += 15
     }
 
-    // Check if top is on base
     const topOnBase = Math.sqrt((top.x - base.x) ** 2 + (top.z - base.z) ** 2) < 1.2
     const topAboveBase = top.y > base.y && top.y < base.y + 2
     if (topOnBase && topAboveBase) {
@@ -625,7 +817,6 @@ export class GameScene extends BaseScene {
       score += 15
     }
 
-    // Check if mikan is on top
     const mikanOnTop = Math.sqrt((mikan.x - top.x) ** 2 + (mikan.z - top.z) ** 2) < 0.8
     const mikanAboveTop = mikan.y > top.y && mikan.y < top.y + 1.5
     if (mikanOnTop && mikanAboveTop) {
