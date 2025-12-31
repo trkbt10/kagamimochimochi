@@ -94,6 +94,11 @@ export class GameScene extends BaseScene {
       this.updateAimArrow()
     }
 
+    // Update gauge position to follow camera (billboard style)
+    if (this.gaugeContainer && this.gaugeContainer.visible) {
+      this.updateGaugePosition()
+    }
+
     // Golf-style gauge oscillation
     if (this.phase === 'direction' || this.phase === 'elevation' || this.phase === 'power') {
       this.gaugeValue += this.gaugeDirection * this.gaugeSpeed * delta
@@ -118,25 +123,53 @@ export class GameScene extends BaseScene {
     }
   }
 
+  private updateGaugePosition() {
+    if (!this.gaugeContainer) return
+
+    const camera = this.game.camera
+
+    // Position gauge in front of camera, slightly below center
+    const distance = 5 // Distance from camera
+    const offsetY = -1.5 // Below center of view
+
+    // Get camera's forward direction
+    const forward = new THREE.Vector3(0, 0, -1)
+    forward.applyQuaternion(camera.quaternion)
+
+    // Position gauge in front of camera
+    this.gaugeContainer.position.copy(camera.position)
+    this.gaugeContainer.position.add(forward.multiplyScalar(distance))
+    this.gaugeContainer.position.y += offsetY
+
+    // Make gauge face the camera (billboard)
+    this.gaugeContainer.quaternion.copy(camera.quaternion)
+  }
+
   private create3DGauges() {
     this.gaugeContainer = new THREE.Group()
-    this.gaugeContainer.position.set(0, 3, 12)
+    // Position will be updated every frame to follow camera
     this.scene.add(this.gaugeContainer)
+
+    // Scale down for appropriate size in view
+    const gaugeScale = 0.3
 
     // Create direction gauge (horizontal)
     this.directionGauge = this.createHorizontalGauge()
-    this.directionGauge.group.position.set(0, 0.5, 0)
+    this.directionGauge.group.scale.setScalar(gaugeScale)
+    this.directionGauge.group.position.set(0, 0, 0)
     this.gaugeContainer.add(this.directionGauge.group)
 
     // Create elevation gauge (vertical)
     this.elevationGauge = this.createVerticalGauge()
-    this.elevationGauge.group.position.set(0, 0.5, 0)
+    this.elevationGauge.group.scale.setScalar(gaugeScale)
+    this.elevationGauge.group.position.set(0, 0, 0)
     this.elevationGauge.group.visible = false
     this.gaugeContainer.add(this.elevationGauge.group)
 
     // Create power gauge (vertical with fill)
     this.powerGauge = this.createPowerGauge()
-    this.powerGauge.group.position.set(0, 0.5, 0)
+    this.powerGauge.group.scale.setScalar(gaugeScale)
+    this.powerGauge.group.position.set(0, 0, 0)
     this.powerGauge.group.visible = false
     this.gaugeContainer.add(this.powerGauge.group)
   }
@@ -144,55 +177,56 @@ export class GameScene extends BaseScene {
   private createHorizontalGauge(): GaugeGroup {
     const group = new THREE.Group()
 
-    // Track (background bar)
-    const trackGeometry = new THREE.BoxGeometry(6, 0.3, 0.2)
-    const trackMaterial = new THREE.MeshStandardMaterial({
-      color: 0x333333,
-      roughness: 0.8
+    // Track (background bar) - centered at origin
+    const trackGeometry = new THREE.BoxGeometry(6, 0.4, 0.15)
+    const trackMaterial = new THREE.MeshBasicMaterial({
+      color: 0x222222,
+      transparent: true,
+      opacity: 0.9
     })
     const track = new THREE.Mesh(trackGeometry, trackMaterial)
     group.add(track)
 
-    // Track border (glow effect)
-    const borderGeometry = new THREE.BoxGeometry(6.1, 0.4, 0.1)
+    // Track border (outline)
+    const borderGeometry = new THREE.BoxGeometry(6.2, 0.6, 0.05)
     const borderMaterial = new THREE.MeshBasicMaterial({
       color: 0xffffff,
       transparent: true,
-      opacity: 0.5
+      opacity: 0.8
     })
     const border = new THREE.Mesh(borderGeometry, borderMaterial)
-    border.position.z = -0.1
+    border.position.z = -0.05
     group.add(border)
 
-    // Center mark
-    const centerMarkGeometry = new THREE.BoxGeometry(0.1, 0.6, 0.25)
+    // Center mark (target indicator)
+    const centerMarkGeometry = new THREE.BoxGeometry(0.15, 0.8, 0.2)
     const centerMarkMaterial = new THREE.MeshBasicMaterial({ color: 0xffd700 })
     const centerMark = new THREE.Mesh(centerMarkGeometry, centerMarkMaterial)
     centerMark.position.z = 0.05
     group.add(centerMark)
 
-    // Indicator (moving marker)
-    const indicatorGeometry = new THREE.BoxGeometry(0.15, 0.5, 0.3)
+    // Indicator (moving marker) - starts at center
+    const indicatorGeometry = new THREE.BoxGeometry(0.2, 0.7, 0.25)
     const indicatorMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 })
     const indicator = new THREE.Mesh(indicatorGeometry, indicatorMaterial)
     indicator.position.z = 0.1
 
-    // Add glow to indicator
-    const glowGeometry = new THREE.BoxGeometry(0.25, 0.6, 0.05)
+    // Glow effect on indicator
+    const glowGeometry = new THREE.BoxGeometry(0.35, 0.85, 0.05)
     const glowMaterial = new THREE.MeshBasicMaterial({
       color: 0xff4444,
       transparent: true,
-      opacity: 0.6
+      opacity: 0.5
     })
     const glow = new THREE.Mesh(glowGeometry, glowMaterial)
-    glow.position.z = 0.2
+    glow.position.z = 0.15
     indicator.add(glow)
 
     group.add(indicator)
 
-    // Add label text using sprite
-    const labelSprite = this.createTextSprite('◀ 方向 ▶', 0.4)
-    labelSprite.position.set(0, 0.5, 0)
+    // Label above the gauge
+    const labelSprite = this.createTextSprite('◀ 方向 ▶', 0.5)
+    labelSprite.position.set(0, 0.8, 0)
     group.add(labelSprite)
 
     return { group, track, indicator, centerMark }
@@ -201,54 +235,55 @@ export class GameScene extends BaseScene {
   private createVerticalGauge(): GaugeGroup {
     const group = new THREE.Group()
 
-    // Track (background bar)
-    const trackGeometry = new THREE.BoxGeometry(0.3, 4, 0.2)
-    const trackMaterial = new THREE.MeshStandardMaterial({
-      color: 0x333333,
-      roughness: 0.8
+    // Track (background bar) - centered at origin
+    const trackGeometry = new THREE.BoxGeometry(0.5, 4, 0.15)
+    const trackMaterial = new THREE.MeshBasicMaterial({
+      color: 0x222222,
+      transparent: true,
+      opacity: 0.9
     })
     const track = new THREE.Mesh(trackGeometry, trackMaterial)
     group.add(track)
 
     // Track border
-    const borderGeometry = new THREE.BoxGeometry(0.4, 4.1, 0.1)
+    const borderGeometry = new THREE.BoxGeometry(0.7, 4.2, 0.05)
     const borderMaterial = new THREE.MeshBasicMaterial({
       color: 0xffffff,
       transparent: true,
-      opacity: 0.5
+      opacity: 0.8
     })
     const border = new THREE.Mesh(borderGeometry, borderMaterial)
-    border.position.z = -0.1
+    border.position.z = -0.05
     group.add(border)
 
-    // Center mark
-    const centerMarkGeometry = new THREE.BoxGeometry(0.6, 0.1, 0.25)
+    // Center mark (target indicator)
+    const centerMarkGeometry = new THREE.BoxGeometry(0.9, 0.15, 0.2)
     const centerMarkMaterial = new THREE.MeshBasicMaterial({ color: 0xffd700 })
     const centerMark = new THREE.Mesh(centerMarkGeometry, centerMarkMaterial)
     centerMark.position.z = 0.05
     group.add(centerMark)
 
     // Indicator (moving marker)
-    const indicatorGeometry = new THREE.BoxGeometry(0.5, 0.15, 0.3)
+    const indicatorGeometry = new THREE.BoxGeometry(0.8, 0.2, 0.25)
     const indicatorMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 })
     const indicator = new THREE.Mesh(indicatorGeometry, indicatorMaterial)
     indicator.position.z = 0.1
 
-    // Add glow
-    const glowGeometry = new THREE.BoxGeometry(0.6, 0.25, 0.05)
+    // Glow effect
+    const glowGeometry = new THREE.BoxGeometry(0.95, 0.35, 0.05)
     const glowMaterial = new THREE.MeshBasicMaterial({
       color: 0xff4444,
       transparent: true,
-      opacity: 0.6
+      opacity: 0.5
     })
     const glow = new THREE.Mesh(glowGeometry, glowMaterial)
-    glow.position.z = 0.2
+    glow.position.z = 0.15
     indicator.add(glow)
 
     group.add(indicator)
 
-    // Add label
-    const labelSprite = this.createTextSprite('角度 ▲', 0.4)
+    // Label above the gauge
+    const labelSprite = this.createTextSprite('▲ 角度 ▲', 0.5)
     labelSprite.position.set(0, 2.5, 0)
     group.add(labelSprite)
 
@@ -258,32 +293,33 @@ export class GameScene extends BaseScene {
   private createPowerGauge(): GaugeGroup {
     const group = new THREE.Group()
 
-    // Track (background with gradient effect using segments)
-    const trackGeometry = new THREE.BoxGeometry(0.5, 4, 0.2)
-    const trackMaterial = new THREE.MeshStandardMaterial({
+    // Track (background)
+    const trackGeometry = new THREE.BoxGeometry(0.6, 4, 0.15)
+    const trackMaterial = new THREE.MeshBasicMaterial({
       color: 0x222222,
-      roughness: 0.8
+      transparent: true,
+      opacity: 0.9
     })
     const track = new THREE.Mesh(trackGeometry, trackMaterial)
     group.add(track)
 
     // Track border
-    const borderGeometry = new THREE.BoxGeometry(0.6, 4.1, 0.1)
+    const borderGeometry = new THREE.BoxGeometry(0.8, 4.2, 0.05)
     const borderMaterial = new THREE.MeshBasicMaterial({
       color: 0xffffff,
       transparent: true,
-      opacity: 0.5
+      opacity: 0.8
     })
     const border = new THREE.Mesh(borderGeometry, borderMaterial)
-    border.position.z = -0.1
+    border.position.z = -0.05
     group.add(border)
 
-    // Gradient segments for power visualization
+    // Gradient background segments for power visualization
     const segments = 20
     const segmentHeight = 4 / segments
     for (let i = 0; i < segments; i++) {
       const t = i / segments
-      const segGeometry = new THREE.BoxGeometry(0.4, segmentHeight * 0.9, 0.15)
+      const segGeometry = new THREE.BoxGeometry(0.5, segmentHeight * 0.85, 0.1)
 
       // Green to yellow to red gradient
       const color = new THREE.Color()
@@ -296,23 +332,26 @@ export class GameScene extends BaseScene {
       const segMaterial = new THREE.MeshBasicMaterial({
         color,
         transparent: true,
-        opacity: 0.3
+        opacity: 0.25
       })
       const segment = new THREE.Mesh(segGeometry, segMaterial)
       segment.position.y = -2 + segmentHeight * 0.5 + i * segmentHeight
-      segment.position.z = 0.05
+      segment.position.z = 0.02
       group.add(segment)
     }
 
-    // Fill bar (dynamic height)
-    const fillGeometry = new THREE.BoxGeometry(0.4, 0.01, 0.2)
+    // Fill bar (dynamic height) - pivot at bottom
+    const fillGeometry = new THREE.BoxGeometry(0.5, 1, 0.15)
+    // Move geometry so pivot is at bottom
+    fillGeometry.translate(0, 0.5, 0)
     const fillMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00 })
     const fill = new THREE.Mesh(fillGeometry, fillMaterial)
-    fill.position.y = -2
-    fill.position.z = 0.1
+    fill.position.y = -2 // Start at bottom of gauge
+    fill.position.z = 0.08
+    fill.scale.y = 0.01 // Start with minimal height
     group.add(fill)
 
-    // Dummy indicator and centerMark for interface
+    // Dummy indicator and centerMark for interface compatibility
     const indicator = new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.01, 0.01))
     indicator.visible = false
     group.add(indicator)
@@ -321,8 +360,8 @@ export class GameScene extends BaseScene {
     centerMark.visible = false
     group.add(centerMark)
 
-    // Add label
-    const labelSprite = this.createTextSprite('パワー', 0.4)
+    // Label above the gauge
+    const labelSprite = this.createTextSprite('パワー', 0.5)
     labelSprite.position.set(0, 2.5, 0)
     group.add(labelSprite)
 
@@ -360,29 +399,28 @@ export class GameScene extends BaseScene {
       // Move indicator along horizontal track (-3 to 3)
       const x = (this.gaugeValue / 100) * 6 - 3
       this.directionGauge.indicator.position.x = x
-      // Preview angle
+      // Preview angle in real-time
       this.angleH = (this.gaugeValue - 50) * 1.2
 
     } else if (this.phase === 'elevation' && this.elevationGauge) {
       // Move indicator along vertical track (-2 to 2)
       const y = (this.gaugeValue / 100) * 4 - 2
       this.elevationGauge.indicator.position.y = y
-      // Preview angle
+      // Preview angle in real-time
       this.angleV = 15 + this.gaugeValue * 0.6
 
     } else if (this.phase === 'power' && this.powerGauge && this.powerGauge.fill) {
-      // Scale fill bar height
-      const height = (this.gaugeValue / 100) * 4
-      this.powerGauge.fill.scale.y = Math.max(height * 100, 1)
-      this.powerGauge.fill.position.y = -2 + height / 2
+      // Scale fill bar from bottom (pivot is at bottom of geometry)
+      const fillHeight = (this.gaugeValue / 100) * 4
+      this.powerGauge.fill.scale.y = Math.max(fillHeight, 0.01)
 
-      // Update fill color based on power
+      // Update fill color based on power level
       const t = this.gaugeValue / 100
       const color = new THREE.Color()
       if (t < 0.5) {
-        color.setHSL(0.33 - t * 0.33, 1, 0.5)
+        color.setHSL(0.33 - t * 0.33, 1, 0.5) // Green to Yellow
       } else {
-        color.setHSL(0.17 - (t - 0.5) * 0.34, 1, 0.5)
+        color.setHSL(0.17 - (t - 0.5) * 0.34, 1, 0.5) // Yellow to Red
       }
       ;(this.powerGauge.fill.material as THREE.MeshBasicMaterial).color = color
     }
