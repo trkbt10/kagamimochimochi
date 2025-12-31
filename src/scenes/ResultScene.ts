@@ -9,6 +9,9 @@ import { Button3D } from '../ui/button-3d'
 import { createConfettiSystem, updateConfetti } from '../ui/confetti'
 import { createMochiGeometry } from './game/mochi-handler'
 import { GlitterScoreRenderer } from '../effects'
+import { SkyGradient } from '../effects/SkyGradient'
+import { SnowEffect } from '../effects/SnowEffect'
+import { MountainFuji } from '../objects/MountainFuji'
 
 type ScoreTier = 'perfect' | 'excellent' | 'good' | 'average' | 'poor' | 'fail'
 
@@ -100,6 +103,11 @@ export class ResultScene extends BaseScene {
   private kagamimochi: THREE.Group | null = null
   private confetti: THREE.Points | null = null
 
+  // お正月演出
+  private skyGradient: SkyGradient | null = null
+  private snowEffect: SnowEffect | null = null
+  private mountain: MountainFuji | null = null
+
   // UI要素
   private uiGroup: THREE.Group | null = null
   private scoreLabelSprite: THREE.Sprite | null = null
@@ -168,10 +176,23 @@ export class ResultScene extends BaseScene {
     this.unregisterLayoutListener()
     this.glitterScoreRenderer?.dispose()
     this.glitterScoreRenderer = null
+
+    // お正月演出のクリーンアップ
+    this.skyGradient?.dispose()
+    this.snowEffect?.dispose()
+    this.mountain?.dispose()
+    this.skyGradient = null
+    this.snowEffect = null
+    this.mountain = null
+
     this.clearScene()
   }
 
   update(delta: number) {
+    // 空と雪のアニメーション
+    this.skyGradient?.update(delta)
+    this.snowEffect?.update(delta)
+
     if (this.particles) {
       this.particles.rotation.y += delta * 0.2
     }
@@ -200,10 +221,29 @@ export class ResultScene extends BaseScene {
   private setupScene() {
     const tierConfig = getScoreTierConfig(this.score)
 
-    this.scene.background = new THREE.Color(tierConfig.bgColor)
-    this.scene.fog = new THREE.FogExp2(tierConfig.bgColor, 0.05)
+    // 初日の出の空（timeOfDay = 1.0）
+    this.skyGradient = new SkyGradient()
+    this.skyGradient.timeOfDay = 1.0 // 朝焼け
+    this.skyGradient.addToScene(this.scene)
 
-    const ambient = new THREE.AmbientLight(0xffffff, 0.4)
+    this.scene.background = null
+    this.scene.fog = new THREE.FogExp2(0xff8060, 0.015) // 朝焼け色の霧
+
+    // 雪エフェクト
+    this.snowEffect = new SnowEffect()
+    this.snowEffect.addToScene(this.scene)
+
+    // 富士山を奥に配置
+    this.mountain = new MountainFuji(1.5)
+    this.mountain.setPosition(0, -2, -60)
+    this.mountain.addToScene(this.scene)
+
+    // 朝日の暖かい光
+    const sunLight = new THREE.DirectionalLight(0xffddaa, 1.2)
+    sunLight.position.set(5, 10, -5)
+    this.scene.add(sunLight)
+
+    const ambient = new THREE.AmbientLight(0xffffff, 0.6)
     this.scene.add(ambient)
 
     const spotlight = new THREE.SpotLight(0xffd700, 2, 30, Math.PI / 4, 0.5)
@@ -317,7 +357,7 @@ export class ResultScene extends BaseScene {
       fontSize: 44,
       color: '#ffffff'
     })
-    this.scoreLabelSprite.position.set(0, 2.6, 0)
+    this.scoreLabelSprite.position.set(0, 3.0, 0)
     this.uiGroup.add(this.scoreLabelSprite)
 
     // ギラギラスコアレンダラー初期化
@@ -325,10 +365,10 @@ export class ResultScene extends BaseScene {
 
     // 初期スコア表示（0から始まる）
     this.scoreSprite = this.glitterScoreRenderer.createScoreDisplay(0)
-    this.scoreSprite.position.set(0, 1.5, 0)
+    this.scoreSprite.position.set(0, 1.7, 0)
     this.scoreSprite.scale.multiplyScalar(2)
     this.glitterScoreRenderer.getGroup().position.copy(this.uiGroup.position)
-    this.glitterScoreRenderer.getGroup().position.y += 1.5
+    this.glitterScoreRenderer.getGroup().position.y += 1.7
 
     // 評価絵文字
     this.ratingSprite = createTextSprite({
@@ -348,7 +388,7 @@ export class ResultScene extends BaseScene {
       shadowColor: 'rgba(0,0,0,0.8)',
       shadowBlur: 4
     })
-    this.ratingTextSprite.position.set(0, -0.5, 0)
+    this.ratingTextSprite.position.set(0, -0.8, 0)
     this.ratingTextSprite.material.opacity = 0 // アニメーション用に初期化
     this.uiGroup.add(this.ratingTextSprite)
 
@@ -367,7 +407,7 @@ export class ResultScene extends BaseScene {
         this.shareToTwitter()
       }
     })
-    this.shareButton.position.set(0, -1.5, 0)
+    this.shareButton.position.set(0, -2.0, 0)
     this.uiGroup.add(this.shareButton)
 
     // タイトルに戻るボタン
@@ -381,7 +421,7 @@ export class ResultScene extends BaseScene {
         this.game.sceneManager.switchTo('intro')
       }
     })
-    this.backButton.position.set(0, -2.5, 0)
+    this.backButton.position.set(0, -3.2, 0)
     this.uiGroup.add(this.backButton)
   }
 
@@ -555,7 +595,7 @@ export class ResultScene extends BaseScene {
         this.scoreSprite.position.set(0, 0, 0)
         this.scoreSprite.scale.multiplyScalar(2)
         this.glitterScoreRenderer.getGroup().position.copy(this.uiGroup.position)
-        this.glitterScoreRenderer.getGroup().position.y += 1.5
+        this.glitterScoreRenderer.getGroup().position.y += 1.7
       }
     }
   }

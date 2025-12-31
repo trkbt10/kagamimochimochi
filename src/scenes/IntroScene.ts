@@ -9,11 +9,22 @@ import { Button3D } from '../ui/button-3d'
 import { Slider3D } from '../ui/slider-3d'
 import { createPanel3D } from '../ui/panel-3d'
 import { createMochiGeometry } from './game/mochi-handler'
+import { SkyGradient } from '../effects/SkyGradient'
+import { SnowEffect } from '../effects/SnowEffect'
+import { Kadomatsu } from '../objects/Kadomatsu'
+import { MountainFuji } from '../objects/MountainFuji'
 
 export class IntroScene extends BaseScene {
   private particles: THREE.Points | null = null
   private kagamimochi: THREE.Group | null = null
   private settingsOpen = false
+
+  // お正月演出
+  private skyGradient: SkyGradient | null = null
+  private snowEffect: SnowEffect | null = null
+  private kadomatsuLeft: Kadomatsu | null = null
+  private kadomatsuRight: Kadomatsu | null = null
+  private mountain: MountainFuji | null = null
 
   // UI要素
   private uiGroup: THREE.Group | null = null
@@ -60,10 +71,27 @@ export class IntroScene extends BaseScene {
     this.game.audioManager.stopBgm()
     this.removeEventListeners()
     this.unregisterLayoutListener()
+
+    // お正月演出のクリーンアップ
+    this.skyGradient?.dispose()
+    this.snowEffect?.dispose()
+    this.kadomatsuLeft?.dispose()
+    this.kadomatsuRight?.dispose()
+    this.mountain?.dispose()
+    this.skyGradient = null
+    this.snowEffect = null
+    this.kadomatsuLeft = null
+    this.kadomatsuRight = null
+    this.mountain = null
+
     this.clearScene()
   }
 
   update(delta: number) {
+    // 空と雪のアニメーション
+    this.skyGradient?.update(delta)
+    this.snowEffect?.update(delta)
+
     // Rotate particles
     if (this.particles) {
       this.particles.rotation.y += delta * 0.1
@@ -87,35 +115,64 @@ export class IntroScene extends BaseScene {
   }
 
   private setupScene() {
-    // Background gradient - slightly brighter
-    this.scene.background = new THREE.Color(0x2d1010)
+    // グラデーション空（夜空）
+    this.skyGradient = new SkyGradient()
+    this.skyGradient.timeOfDay = 0 // 夜空
+    this.skyGradient.addToScene(this.scene)
 
-    // Fog for depth - reduced density for better visibility
-    this.scene.fog = new THREE.FogExp2(0x2d1010, 0.02)
+    // 背景色は使わない（空で覆う）
+    this.scene.background = null
 
-    // Ambient light - brighter for better visibility
-    const ambient = new THREE.AmbientLight(0xffffff, 0.6)
+    // 霧を薄く - 夜空に合わせた色
+    this.scene.fog = new THREE.FogExp2(0x0a0a1e, 0.008)
+
+    // 月明かり（青白い光）
+    const moonLight = new THREE.DirectionalLight(0x8888ff, 0.4)
+    moonLight.position.set(-10, 15, -5)
+    this.scene.add(moonLight)
+
+    // Ambient light - 夜なので少し暗め
+    const ambient = new THREE.AmbientLight(0x6666aa, 0.3)
     this.scene.add(ambient)
 
-    // Main spotlight - increased intensity
+    // Main spotlight - ゴールドで鏡餅を照らす
     const spotlight = new THREE.SpotLight(0xffd700, 3, 40, Math.PI / 4, 0.5, 1)
     spotlight.position.set(0, 15, 5)
     spotlight.castShadow = true
     this.scene.add(spotlight)
 
     // Additional front light for UI visibility
-    const frontLight = new THREE.DirectionalLight(0xffffff, 0.5)
+    const frontLight = new THREE.DirectionalLight(0xffffff, 0.4)
     frontLight.position.set(0, 5, 10)
     this.scene.add(frontLight)
 
-    // Point lights for ambiance - increased intensity
-    const redLight = new THREE.PointLight(0xff3333, 1.5, 25)
+    // Point lights for ambiance - 赤とゴールドでお正月感
+    const redLight = new THREE.PointLight(0xff3333, 1.2, 25)
     redLight.position.set(-5, 3, -3)
     this.scene.add(redLight)
 
-    const goldLight = new THREE.PointLight(0xffd700, 1.5, 25)
+    const goldLight = new THREE.PointLight(0xffd700, 1.2, 25)
     goldLight.position.set(5, 3, -3)
     this.scene.add(goldLight)
+
+    // 雪エフェクト
+    this.snowEffect = new SnowEffect()
+    this.snowEffect.addToScene(this.scene)
+
+    // 門松を左右に配置
+    this.kadomatsuLeft = new Kadomatsu(0.8)
+    this.kadomatsuLeft.setPosition(-5, -2, -2)
+    this.kadomatsuLeft.addToScene(this.scene)
+
+    this.kadomatsuRight = new Kadomatsu(0.8)
+    this.kadomatsuRight.setPosition(5, -2, -2)
+    this.kadomatsuRight.group.rotation.y = Math.PI // 反対向き
+    this.kadomatsuRight.addToScene(this.scene)
+
+    // 富士山を奥に配置
+    this.mountain = new MountainFuji(1.5)
+    this.mountain.setPosition(0, -2, -60)
+    this.mountain.addToScene(this.scene)
 
     // Create floating particles (gold confetti)
     this.createParticles()
@@ -253,7 +310,7 @@ export class IntroScene extends BaseScene {
       shadowColor: '#8B0000',
       shadowBlur: 8
     })
-    this.titleSprite.position.set(0, 2.2, 0)
+    this.titleSprite.position.set(0, 2.8, 0)
     this.titleSprite.scale.multiplyScalar(1.5)
     this.uiGroup.add(this.titleSprite)
 
@@ -265,7 +322,7 @@ export class IntroScene extends BaseScene {
       shadowColor: 'rgba(0,0,0,0.8)',
       shadowBlur: 4
     })
-    this.subtitleSprite.position.set(0, 1.3, 0)
+    this.subtitleSprite.position.set(0, 1.7, 0)
     this.uiGroup.add(this.subtitleSprite)
 
     // 説明テキスト
@@ -274,7 +331,7 @@ export class IntroScene extends BaseScene {
       fontSize: 32,
       color: '#cccccc'
     })
-    this.instructionSprite.position.set(0, 0.7, 0)
+    this.instructionSprite.position.set(0, 0.5, 0)
     this.uiGroup.add(this.instructionSprite)
 
     // スタートボタン
@@ -289,7 +346,7 @@ export class IntroScene extends BaseScene {
         this.game.sceneManager.switchTo('game')
       }
     })
-    this.startButton.position.set(0, -0.4, 0)
+    this.startButton.position.set(0, -0.7, 0)
     this.uiGroup.add(this.startButton)
 
     // 設定ボタン
@@ -308,7 +365,7 @@ export class IntroScene extends BaseScene {
         this.toggleSettings()
       }
     })
-    this.settingsButton.position.set(0, -1.5, 0)
+    this.settingsButton.position.set(0, -1.9, 0)
     this.uiGroup.add(this.settingsButton)
 
     // 設定パネルを作成
