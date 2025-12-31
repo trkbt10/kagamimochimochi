@@ -1,14 +1,9 @@
 export class AudioManager {
   private audioContext: AudioContext | null = null
   private masterGain: GainNode | null = null
-  private bgmGain: GainNode | null = null
   private sfxGain: GainNode | null = null
 
-  private bgmOscillators: OscillatorNode[] = []
-  private bgmPlaying = false
-
   public masterVolume = 0.7
-  public bgmVolume = 0.5
 
   private isSilentMode = false
 
@@ -27,10 +22,6 @@ export class AudioManager {
       this.masterGain = this.audioContext.createGain()
       this.masterGain.connect(this.audioContext.destination)
       this.masterGain.gain.value = this.masterVolume
-
-      this.bgmGain = this.audioContext.createGain()
-      this.bgmGain.connect(this.masterGain)
-      this.bgmGain.gain.value = this.bgmVolume
 
       this.sfxGain = this.audioContext.createGain()
       this.sfxGain.connect(this.masterGain)
@@ -98,69 +89,6 @@ export class AudioManager {
     if (this.masterGain) {
       this.masterGain.gain.value = value
     }
-  }
-
-  setBgmVolume(value: number) {
-    this.bgmVolume = value
-    if (this.bgmGain) {
-      this.bgmGain.gain.value = value
-    }
-  }
-
-  playBgm() {
-    if (!this.audioContext || !this.bgmGain || this.bgmPlaying || !this.shouldPlayAudio()) return
-
-    this.bgmPlaying = true
-
-    // Traditional Japanese-style melody using pentatonic scale
-    const notes = [261.63, 293.66, 349.23, 392.00, 440.00] // C, D, F, G, A (pentatonic)
-
-    const playNote = (freq: number, startTime: number, duration: number) => {
-      const osc = this.audioContext!.createOscillator()
-      const gain = this.audioContext!.createGain()
-
-      osc.type = 'sine'
-      osc.frequency.value = freq
-
-      gain.connect(this.bgmGain!)
-      osc.connect(gain)
-
-      gain.gain.setValueAtTime(0, startTime)
-      gain.gain.linearRampToValueAtTime(0.3, startTime + 0.1)
-      gain.gain.linearRampToValueAtTime(0, startTime + duration)
-
-      osc.start(startTime)
-      osc.stop(startTime + duration)
-
-      this.bgmOscillators.push(osc)
-    }
-
-    const loopBgm = () => {
-      if (!this.bgmPlaying || !this.audioContext) return
-
-      const now = this.audioContext.currentTime
-      const pattern = [0, 2, 4, 2, 0, 3, 4, 3, 0, 1, 2, 4, 3, 2, 1, 0]
-
-      pattern.forEach((noteIndex, i) => {
-        playNote(notes[noteIndex], now + i * 0.4, 0.35)
-      })
-
-      setTimeout(loopBgm, pattern.length * 400)
-    }
-
-    loopBgm()
-  }
-
-  stopBgm() {
-    this.bgmPlaying = false
-    this.bgmOscillators.forEach(osc => {
-      try {
-        osc.stop()
-      } catch {
-        // Already stopped
-      }
-    })
-    this.bgmOscillators = []
   }
 
   playLaunch() {

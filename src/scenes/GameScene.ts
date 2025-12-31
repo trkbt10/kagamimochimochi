@@ -129,11 +129,9 @@ export class GameScene extends BaseScene {
     this.createPreviewMesh()
     this.registerLayoutListener()
     this.effectManager = new EffectManager(this.scene)
-    this.game.audioManager.playBgm()
   }
 
   async exit() {
-    this.game.audioManager.stopBgm()
     this.removeUI()
     this.removeEventListeners()
     this.unregisterLayoutListener()

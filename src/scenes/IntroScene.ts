@@ -39,7 +39,6 @@ export class IntroScene extends BaseScene {
   private settingsGroup: THREE.Group | null = null
   private settingsPanel: THREE.Mesh | null = null
   private masterVolumeSlider: Slider3D | null = null
-  private bgmVolumeSlider: Slider3D | null = null
   private closeSettingsButton: Button3D | null = null
 
   // Raycaster
@@ -70,7 +69,6 @@ export class IntroScene extends BaseScene {
   }
 
   async exit() {
-    this.game.audioManager.stopBgm()
     this.removeEventListeners()
     this.unregisterLayoutListener()
 
@@ -491,29 +489,15 @@ export class IntroScene extends BaseScene {
     this.masterVolumeSlider.position.set(0.3, 0.5, 0.1)
     this.settingsGroup.add(this.masterVolumeSlider)
 
-    // BGM音量スライダー
-    this.bgmVolumeSlider = new Slider3D({
-      label: 'BGM',
-      width: 2.8,
-      initialValue: 0.5,
-      onChange: (value) => {
-        this.game.audioManager.setBgmVolume(value)
-      }
-    })
-    this.bgmVolumeSlider.position.set(0.3, -0.3, 0.1)
-    this.settingsGroup.add(this.bgmVolumeSlider)
-
     // 閉じるボタン
     this.closeSettingsButton = new Button3D({
       text: '閉じる',
       width: 2.4,
       height: 0.7,
       fontSize: 40,
-      onClick: async () => {
+      onClick: () => {
         this.game.audioManager.playClick()
-        await this.game.audioManager.resume()
         this.toggleSettings()
-        this.game.audioManager.playBgm()
       }
     })
     this.closeSettingsButton.position.set(0, -1.4, 0.1)
@@ -705,7 +689,6 @@ export class IntroScene extends BaseScene {
 
     if (this.settingsOpen) {
       if (this.masterVolumeSlider) sliders.push(this.masterVolumeSlider)
-      if (this.bgmVolumeSlider) sliders.push(this.bgmVolumeSlider)
     }
 
     return sliders
