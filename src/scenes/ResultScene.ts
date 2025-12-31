@@ -2,7 +2,93 @@ import * as THREE from 'three'
 import { gsap } from 'gsap'
 import { BaseScene } from './BaseScene'
 import type { Game } from '../core/Game'
-import { createTextSprite, Button3D, createConfettiSystem, updateConfetti } from '../ui/ThreeUI'
+import { createTextSprite } from '../ui/text-sprite'
+import { Button3D } from '../ui/button-3d'
+import { createConfettiSystem, updateConfetti } from '../ui/confetti'
+
+type ScoreTier = 'perfect' | 'excellent' | 'good' | 'average' | 'poor' | 'fail'
+
+type ScoreTierConfig = {
+  minScore: number
+  emoji: string
+  text: string
+  bgColor: number
+  accentLightColor: number
+  particleColor: THREE.Vector3
+  isSuccess: boolean
+}
+
+const SCORE_TIER_CONFIGS: Record<ScoreTier, ScoreTierConfig> = {
+  perfect: {
+    minScore: 100,
+    emoji: '🎊🏆🎊',
+    text: '完璧！神業です！',
+    bgColor: 0x1a0a2a,
+    accentLightColor: 0xffd700,
+    particleColor: new THREE.Vector3(1, 0.84, 0),
+    isSuccess: true
+  },
+  excellent: {
+    minScore: 80,
+    emoji: '🎉✨',
+    text: '素晴らしい！見事な鏡餅！',
+    bgColor: 0x1a0a2a,
+    accentLightColor: 0xffd700,
+    particleColor: new THREE.Vector3(1, 0.84, 0),
+    isSuccess: true
+  },
+  good: {
+    minScore: 60,
+    emoji: '😊👍',
+    text: 'まあまあ！惜しい！',
+    bgColor: 0x1a1a0a,
+    accentLightColor: 0xffffff,
+    particleColor: new THREE.Vector3(0.8, 0.8, 0.8),
+    isSuccess: false
+  },
+  average: {
+    minScore: 40,
+    emoji: '😅',
+    text: 'うーん...もう一回！',
+    bgColor: 0x1a1a0a,
+    accentLightColor: 0xffffff,
+    particleColor: new THREE.Vector3(0.8, 0.8, 0.8),
+    isSuccess: false
+  },
+  poor: {
+    minScore: 20,
+    emoji: '😢',
+    text: 'ヤバイ...修行が必要',
+    bgColor: 0x2a0a0a,
+    accentLightColor: 0xff3333,
+    particleColor: new THREE.Vector3(0.5, 0.5, 0.5),
+    isSuccess: false
+  },
+  fail: {
+    minScore: 0,
+    emoji: '💀',
+    text: '鏡餅崩壊...あけましておめでとう！',
+    bgColor: 0x2a0a0a,
+    accentLightColor: 0xff3333,
+    particleColor: new THREE.Vector3(0.5, 0.5, 0.5),
+    isSuccess: false
+  }
+}
+
+const TIER_ORDER: ScoreTier[] = ['perfect', 'excellent', 'good', 'average', 'poor', 'fail']
+
+export function getScoreTier(score: number): ScoreTier {
+  for (const tier of TIER_ORDER) {
+    if (score >= SCORE_TIER_CONFIGS[tier].minScore) {
+      return tier
+    }
+  }
+  return 'fail'
+}
+
+export function getScoreTierConfig(score: number): ScoreTierConfig {
+  return SCORE_TIER_CONFIGS[getScoreTier(score)]
+}
 
 export class ResultScene extends BaseScene {
   private score = 0
@@ -40,7 +126,7 @@ export class ResultScene extends BaseScene {
   }
 
   async enter(data?: Record<string, unknown>) {
-    this.score = (data?.score as number) || 0
+    this.score = (data?.score as number) ?? 0
     this.displayedScore = 0
 
     this.setupScene()
@@ -48,12 +134,17 @@ export class ResultScene extends BaseScene {
     this.setupEventListeners()
     this.playResultAnimation()
 
-    if (this.score >= 80) {
+    const tierConfig = getScoreTierConfig(this.score)
+    this.playResultAudio(tierConfig.isSuccess)
+  }
+
+  private playResultAudio(isSuccess: boolean) {
+    if (isSuccess) {
       this.game.audioManager.playSuccess()
       this.spawnConfetti()
-    } else {
-      this.game.audioManager.playFail()
+      return
     }
+    this.game.audioManager.playFail()
   }
 
   async exit() {
@@ -82,12 +173,11 @@ export class ResultScene extends BaseScene {
   }
 
   private setupScene() {
-    // Background based on score
-    const bgColor = this.score >= 80 ? 0x1a0a2a : this.score >= 50 ? 0x1a1a0a : 0x2a0a0a
-    this.scene.background = new THREE.Color(bgColor)
-    this.scene.fog = new THREE.FogExp2(bgColor, 0.05)
+    const tierConfig = getScoreTierConfig(this.score)
 
-    // Lights
+    this.scene.background = new THREE.Color(tierConfig.bgColor)
+    this.scene.fog = new THREE.FogExp2(tierConfig.bgColor, 0.05)
+
     const ambient = new THREE.AmbientLight(0xffffff, 0.4)
     this.scene.add(ambient)
 
@@ -95,24 +185,16 @@ export class ResultScene extends BaseScene {
     spotlight.position.set(0, 15, 5)
     this.scene.add(spotlight)
 
-    // 追加のライト（スコアに応じた色）
-    const accentLight = new THREE.PointLight(
-      this.score >= 80 ? 0xffd700 : this.score >= 50 ? 0xffffff : 0xff3333,
-      1,
-      20
-    )
+    const accentLight = new THREE.PointLight(tierConfig.accentLightColor, 1, 20)
     accentLight.position.set(0, 5, 5)
     this.scene.add(accentLight)
 
-    // Create floating particles
     this.createParticles()
-
-    // Create result kagamimochi representation
     this.createResultKagamimochi()
   }
 
   private createParticles() {
-    const geometry = new THREE.BufferGeometry()
+    const tierConfig = getScoreTierConfig(this.score)
     const count = 300
     const positions = new Float32Array(count * 3)
     const colors = new Float32Array(count * 3)
@@ -122,22 +204,12 @@ export class ResultScene extends BaseScene {
       positions[i * 3 + 1] = Math.random() * 20
       positions[i * 3 + 2] = (Math.random() - 0.5) * 30
 
-      // Colors based on score
-      if (this.score >= 80) {
-        colors[i * 3] = 1
-        colors[i * 3 + 1] = 0.84
-        colors[i * 3 + 2] = 0
-      } else if (this.score >= 50) {
-        colors[i * 3] = 0.8
-        colors[i * 3 + 1] = 0.8
-        colors[i * 3 + 2] = 0.8
-      } else {
-        colors[i * 3] = 0.5
-        colors[i * 3 + 1] = 0.5
-        colors[i * 3 + 2] = 0.5
-      }
+      colors[i * 3] = tierConfig.particleColor.x
+      colors[i * 3 + 1] = tierConfig.particleColor.y
+      colors[i * 3 + 2] = tierConfig.particleColor.z
     }
 
+    const geometry = new THREE.BufferGeometry()
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
     geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
 
@@ -313,19 +385,8 @@ export class ResultScene extends BaseScene {
   }
 
   private getRating(): { emoji: string; text: string } {
-    if (this.score >= 100) {
-      return { emoji: '🎊🏆🎊', text: '完璧！神業です！' }
-    } else if (this.score >= 80) {
-      return { emoji: '🎉✨', text: '素晴らしい！見事な鏡餅！' }
-    } else if (this.score >= 60) {
-      return { emoji: '😊👍', text: 'まあまあ！惜しい！' }
-    } else if (this.score >= 40) {
-      return { emoji: '😅', text: 'うーん...もう一回！' }
-    } else if (this.score >= 20) {
-      return { emoji: '😢', text: 'ヤバイ...修行が必要' }
-    } else {
-      return { emoji: '💀', text: '鏡餅崩壊...あけましておめでとう！' }
-    }
+    const config = getScoreTierConfig(this.score)
+    return { emoji: config.emoji, text: config.text }
   }
 
   private setupEventListeners() {

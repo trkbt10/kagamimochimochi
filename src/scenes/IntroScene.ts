@@ -2,7 +2,10 @@ import * as THREE from 'three'
 import { gsap } from 'gsap'
 import { BaseScene } from './BaseScene'
 import type { Game } from '../core/Game'
-import { createTextSprite, Button3D, Slider3D, createPanel3D } from '../ui/ThreeUI'
+import { createTextSprite } from '../ui/text-sprite'
+import { Button3D } from '../ui/button-3d'
+import { Slider3D } from '../ui/slider-3d'
+import { createPanel3D } from '../ui/panel-3d'
 
 export class IntroScene extends BaseScene {
   private particles: THREE.Points | null = null
