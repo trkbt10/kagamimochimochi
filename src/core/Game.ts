@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { SceneManager } from './SceneManager'
 import { AudioManager } from './AudioManager'
+import { LayoutManager } from './layout'
 import { IntroScene } from '../scenes/IntroScene'
 import { GameScene } from '../scenes/GameScene'
 import { ResultScene } from '../scenes/ResultScene'
@@ -10,6 +11,7 @@ export class Game {
   public camera: THREE.PerspectiveCamera
   public sceneManager: SceneManager
   public audioManager: AudioManager
+  public layoutManager: LayoutManager
   public clock: THREE.Clock
 
   private container: HTMLElement
@@ -20,6 +22,7 @@ export class Game {
     this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000)
     this.sceneManager = new SceneManager(this)
     this.audioManager = new AudioManager()
+    this.layoutManager = new LayoutManager(this.camera)
     this.clock = new THREE.Clock()
   }
 
@@ -27,6 +30,9 @@ export class Game {
     this.setupRenderer()
     this.setupCamera()
     this.setupEventListeners()
+
+    // Initialize layout
+    this.layoutManager.update(window.innerWidth, window.innerHeight)
 
     // Register scenes
     this.sceneManager.register('intro', new IntroScene(this))
@@ -70,6 +76,9 @@ export class Game {
     this.camera.aspect = width / height
     this.camera.updateProjectionMatrix()
     this.renderer.setSize(width, height)
+
+    // Update layout (notifies all listeners)
+    this.layoutManager.update(width, height)
   }
 
   private animate() {

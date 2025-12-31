@@ -3,12 +3,12 @@ import * as THREE from 'three'
 import {
   calculatePowerMultiplier,
   calculateSpeed,
-  calculateInitialVelocity,
   calculateTrajectory,
   getTrajectoryColor,
   createTrajectoryLine,
   createTargetMarker
 } from './trajectory'
+import { calculateInitialVelocity } from '../../types/launch'
 
 describe('trajectory', () => {
   describe('calculatePowerMultiplier', () => {
@@ -49,34 +49,41 @@ describe('trajectory', () => {
   })
 
   describe('calculateInitialVelocity', () => {
+    const createParams = (angleH: number, angleV: number, power: number) => ({
+      angleH,
+      angleV,
+      power,
+      launchPosition: new THREE.Vector3(0, 0, 10)
+    })
+
     it('should return zero x velocity when aiming straight (angleH = 0)', () => {
-      const velocity = calculateInitialVelocity(0, 45, 10)
+      const velocity = calculateInitialVelocity(createParams(0, 45, 50))
       expect(Math.abs(velocity.x)).toBeLessThan(0.0001)
     })
 
     it('should return negative z velocity when aiming forward', () => {
-      const velocity = calculateInitialVelocity(0, 45, 10)
+      const velocity = calculateInitialVelocity(createParams(0, 45, 50))
       expect(velocity.z).toBeLessThan(0)
     })
 
     it('should return positive y velocity', () => {
-      const velocity = calculateInitialVelocity(0, 45, 10)
+      const velocity = calculateInitialVelocity(createParams(0, 45, 50))
       expect(velocity.y).toBeGreaterThan(0)
     })
 
     it('should have positive x velocity when aiming right (positive angleH)', () => {
-      const velocity = calculateInitialVelocity(30, 45, 10)
+      const velocity = calculateInitialVelocity(createParams(30, 45, 50))
       expect(velocity.x).toBeGreaterThan(0)
     })
 
     it('should have negative x velocity when aiming left (negative angleH)', () => {
-      const velocity = calculateInitialVelocity(-30, 45, 10)
+      const velocity = calculateInitialVelocity(createParams(-30, 45, 50))
       expect(velocity.x).toBeLessThan(0)
     })
 
     it('should have higher y velocity with higher elevation angle', () => {
-      const lowAngle = calculateInitialVelocity(0, 15, 10)
-      const highAngle = calculateInitialVelocity(0, 75, 10)
+      const lowAngle = calculateInitialVelocity(createParams(0, 15, 50))
+      const highAngle = calculateInitialVelocity(createParams(0, 75, 50))
       expect(highAngle.y).toBeGreaterThan(lowAngle.y)
     })
   })

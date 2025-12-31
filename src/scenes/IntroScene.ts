@@ -2,6 +2,8 @@ import * as THREE from 'three'
 import { gsap } from 'gsap'
 import { BaseScene } from './BaseScene'
 import type { Game } from '../core/Game'
+import type { LayoutInfo } from '../core/layout'
+import { redistributeParticles, calculateLayoutScale } from '../core/layout'
 import { createTextSprite } from '../ui/text-sprite'
 import { Button3D } from '../ui/button-3d'
 import { Slider3D } from '../ui/slider-3d'
@@ -37,27 +39,26 @@ export class IntroScene extends BaseScene {
   private boundOnPointerMove: (e: PointerEvent) => void
   private boundOnPointerDown: (e: PointerEvent) => void
   private boundOnPointerUp: (e: PointerEvent) => void
-  private boundOnResize: () => void
 
   constructor(game: Game) {
     super(game)
     this.boundOnPointerMove = this.onPointerMove.bind(this)
     this.boundOnPointerDown = this.onPointerDown.bind(this)
     this.boundOnPointerUp = this.onPointerUp.bind(this)
-    this.boundOnResize = this.adjustForScreenSize.bind(this)
   }
 
   async enter() {
     this.setupScene()
     this.buildUI3D()
     this.setupEventListeners()
-    this.adjustForScreenSize()
+    this.registerLayoutListener()
     this.animateIntro()
   }
 
   async exit() {
     this.game.audioManager.stopBgm()
     this.removeEventListeners()
+    this.unregisterLayoutListener()
     this.clearScene()
   }
 
@@ -434,7 +435,6 @@ export class IntroScene extends BaseScene {
     canvas.addEventListener('pointermove', this.boundOnPointerMove)
     canvas.addEventListener('pointerdown', this.boundOnPointerDown)
     canvas.addEventListener('pointerup', this.boundOnPointerUp)
-    window.addEventListener('resize', this.boundOnResize)
   }
 
   private removeEventListeners() {
@@ -442,7 +442,6 @@ export class IntroScene extends BaseScene {
     canvas.removeEventListener('pointermove', this.boundOnPointerMove)
     canvas.removeEventListener('pointerdown', this.boundOnPointerDown)
     canvas.removeEventListener('pointerup', this.boundOnPointerUp)
-    window.removeEventListener('resize', this.boundOnResize)
   }
 
   private updateMousePosition(e: PointerEvent) {
@@ -590,29 +589,35 @@ export class IntroScene extends BaseScene {
     return sliders
   }
 
-  private adjustForScreenSize() {
-    const aspect = window.innerWidth / window.innerHeight
-
-    // モバイル（縦長画面）の場合、カメラを引いてUIを収める
-    if (aspect < 1) {
+  /**
+   * レイアウト変更時の調整
+   */
+  protected adjustLayout(layout: LayoutInfo): void {
+    // カメラ調整
+    if (layout.mode === 'portrait') {
       // 縦画面: カメラを遠くに配置
-      const zoomOut = 1 / aspect
+      const zoomOut = 1 / layout.screenAspect
       this.game.camera.position.set(0, 5, 12 + (zoomOut - 1) * 8)
-      this.game.camera.lookAt(0, 2, 0)
-
-      // UIグループのスケールを調整
-      if (this.uiGroup) {
-        const scale = Math.max(0.6, aspect)
-        this.uiGroup.scale.set(scale, scale, scale)
-      }
     } else {
       // 横画面: 通常の設定
       this.game.camera.position.set(0, 5, 12)
-      this.game.camera.lookAt(0, 2, 0)
+    }
+    this.game.camera.lookAt(0, 2, 0)
 
-      if (this.uiGroup) {
-        this.uiGroup.scale.set(1, 1, 1)
-      }
+    // UIグループのスケールを調整
+    if (this.uiGroup) {
+      const scale = calculateLayoutScale(layout, 0.6)
+      this.uiGroup.scale.setScalar(scale)
+    }
+
+    // パーティクルを装飾領域に拡張
+    if (this.particles) {
+      redistributeParticles(this.particles, layout, {
+        baseWidth: 30,
+        baseHeight: 20,
+        baseDepth: 30,
+        yOffset: 0,
+      })
     }
   }
 

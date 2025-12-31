@@ -2,6 +2,8 @@ import * as THREE from 'three'
 import { gsap } from 'gsap'
 import { BaseScene } from './BaseScene'
 import type { Game } from '../core/Game'
+import type { LayoutInfo } from '../core/layout'
+import { redistributeParticles, calculateLayoutScale } from '../core/layout'
 import { createTextSprite } from '../ui/text-sprite'
 import { Button3D } from '../ui/button-3d'
 import { createConfettiSystem, updateConfetti } from '../ui/confetti'
@@ -132,6 +134,7 @@ export class ResultScene extends BaseScene {
     this.setupScene()
     this.buildUI3D()
     this.setupEventListeners()
+    this.registerLayoutListener()
     this.playResultAnimation()
 
     const tierConfig = getScoreTierConfig(this.score)
@@ -149,6 +152,7 @@ export class ResultScene extends BaseScene {
 
   async exit() {
     this.removeEventListeners()
+    this.unregisterLayoutListener()
     this.clearScene()
   }
 
@@ -570,5 +574,36 @@ export class ResultScene extends BaseScene {
   private spawnConfetti() {
     this.confetti = createConfettiSystem(300)
     this.scene.add(this.confetti)
+  }
+
+  /**
+   * レイアウト変更時の調整
+   */
+  protected adjustLayout(layout: LayoutInfo): void {
+    // UIグループのスケールを調整
+    if (this.uiGroup) {
+      const scale = calculateLayoutScale(layout, 0.6)
+      this.uiGroup.scale.setScalar(scale)
+    }
+
+    // パーティクルを装飾領域に拡張
+    if (this.particles) {
+      redistributeParticles(this.particles, layout, {
+        baseWidth: 30,
+        baseHeight: 20,
+        baseDepth: 30,
+        yOffset: 0,
+      })
+    }
+
+    // 紙吹雪も装飾領域に拡張
+    if (this.confetti) {
+      redistributeParticles(this.confetti, layout, {
+        baseWidth: 20,
+        baseHeight: 15,
+        baseDepth: 10,
+        yOffset: 5,
+      })
+    }
   }
 }

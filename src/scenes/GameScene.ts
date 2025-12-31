@@ -3,6 +3,8 @@ import * as CANNON from 'cannon-es'
 import { gsap } from 'gsap'
 import { BaseScene } from './BaseScene'
 import type { Game } from '../core/Game'
+import type { LayoutInfo } from '../core/layout'
+import { calculateLayoutScale } from '../core/layout'
 import {
   type MochiType,
   MOCHI_HANDLERS,
@@ -10,14 +12,17 @@ import {
 } from './game/mochi-handler'
 import {
   calculateTrajectory,
-  calculatePowerMultiplier,
-  calculateSpeed,
-  calculateInitialVelocity,
   getTrajectoryColor,
   createTrajectoryLine,
   updateTrajectoryLine,
   createTargetMarker
 } from './game/trajectory'
+import {
+  type LaunchParameters,
+  createDefaultLaunchParameters,
+  calculateInitialVelocity,
+  degreesToRadians
+} from '../types/launch'
 import {
   type GaugeGroup,
   createHorizontalGauge,
@@ -65,16 +70,13 @@ export class GameScene extends BaseScene {
   private currentType: MochiType = 'base'
 
   private phase: GamePhase = 'direction'
-  private angleH = 0
-  private angleV = 45
-  private power = 50
+  private launchParams: LaunchParameters = createDefaultLaunchParameters()
 
   private gaugeValue = 50
   private gaugeDirection = 1
   private gaugeSpeed = 120
 
   private aimArrow: THREE.Group | null = null
-  private launchPosition = new THREE.Vector3(0, 0, 10)
 
   private dai: THREE.Mesh | null = null
 
@@ -106,6 +108,7 @@ export class GameScene extends BaseScene {
     this.setupEventListeners()
     this.setupCamera()
     this.createPreviewMesh()
+    this.registerLayoutListener()
     this.game.audioManager.playBgm()
   }
 
@@ -113,6 +116,7 @@ export class GameScene extends BaseScene {
     this.game.audioManager.stopBgm()
     this.removeUI()
     this.removeEventListeners()
+    this.unregisterLayoutListener()
     this.removePreviewMesh()
     this.clearScene()
     this.world = null
@@ -178,9 +182,9 @@ export class GameScene extends BaseScene {
 
   private updateCurrentGauge() {
     if (this.phase === 'direction' && this.directionGauge) {
-      this.angleH = updateDirectionGauge(this.directionGauge, this.gaugeValue)
+      this.launchParams.angleH = updateDirectionGauge(this.directionGauge, this.gaugeValue)
     } else if (this.phase === 'elevation' && this.elevationGauge) {
-      this.angleV = updateElevationGauge(this.elevationGauge, this.gaugeValue)
+      this.launchParams.angleV = updateElevationGauge(this.elevationGauge, this.gaugeValue)
     } else if (this.phase === 'power' && this.powerGauge) {
       updatePowerGauge(this.powerGauge, this.gaugeValue)
     }
@@ -215,12 +219,13 @@ export class GameScene extends BaseScene {
   private updateTrajectoryDisplay() {
     if (!this.trajectoryLine) return
 
+    // パワーフェーズ中はgaugeValueを使用、それ以外はpowerを使用
+    const currentPower = this.phase === 'power' ? this.gaugeValue : this.launchParams.power
+
     const result = calculateTrajectory(
       {
-        angleH: this.angleH,
-        angleV: this.angleV,
-        power: this.power,
-        launchPosition: this.launchPosition
+        ...this.launchParams,
+        power: currentPower
       },
       TRAJECTORY_POINTS
     )
@@ -264,9 +269,7 @@ export class GameScene extends BaseScene {
     this.currentObject = null
     this.currentType = 'base'
     this.phase = 'direction'
-    this.angleH = 0
-    this.angleV = 45
-    this.power = 50
+    this.launchParams = createDefaultLaunchParameters()
     this.gaugeValue = 50
     this.gaugeDirection = 1
   }
@@ -303,14 +306,14 @@ export class GameScene extends BaseScene {
 
   private setupContactMaterials() {
     const mochiGroundContact = new CANNON.ContactMaterial(this.mochiMaterial!, this.groundMaterial!, {
-      friction: 0.9,
-      restitution: 0.15
+      friction: 1.2,
+      restitution: 0.02
     })
     this.world!.addContactMaterial(mochiGroundContact)
 
     const mochiMochiContact = new CANNON.ContactMaterial(this.mochiMaterial!, this.mochiMaterial!, {
       friction: 1.5,
-      restitution: 0.05
+      restitution: 0.01
     })
     this.world!.addContactMaterial(mochiMochiContact)
   }
@@ -391,15 +394,15 @@ export class GameScene extends BaseScene {
     arrowHead.position.z = -2.25
     this.aimArrow.add(arrowHead)
 
-    this.aimArrow.position.copy(this.launchPosition)
+    this.aimArrow.position.copy(this.launchParams.launchPosition)
     this.scene.add(this.aimArrow)
   }
 
   private updateAimArrow() {
     if (!this.aimArrow) return
 
-    const hRad = (this.angleH * Math.PI) / 180
-    const vRad = (this.angleV * Math.PI) / 180
+    const hRad = degreesToRadians(this.launchParams.angleH)
+    const vRad = degreesToRadians(this.launchParams.angleV)
 
     this.aimArrow.rotation.y = -hRad
     this.aimArrow.rotation.x = -vRad
@@ -414,7 +417,7 @@ export class GameScene extends BaseScene {
 
     this.previewMesh = new THREE.Mesh(geometry, material)
     this.previewMesh.castShadow = true
-    this.previewMesh.position.copy(this.launchPosition)
+    this.previewMesh.position.copy(this.launchParams.launchPosition)
     this.scene.add(this.previewMesh)
   }
 
@@ -485,7 +488,7 @@ export class GameScene extends BaseScene {
   }
 
   private confirmDirection() {
-    this.angleH = (this.gaugeValue - 50) * 1.2
+    this.launchParams.angleH = (this.gaugeValue - 50) * 1.2
     this.game.audioManager.playLand()
 
     this.directionGauge!.group.visible = false
@@ -499,7 +502,7 @@ export class GameScene extends BaseScene {
   }
 
   private confirmElevation() {
-    this.angleV = 15 + this.gaugeValue * 0.6
+    this.launchParams.angleV = 15 + this.gaugeValue * 0.6
     this.game.audioManager.playLand()
 
     this.elevationGauge!.group.visible = false
@@ -513,7 +516,7 @@ export class GameScene extends BaseScene {
   }
 
   private confirmPowerAndLaunch() {
-    this.power = this.gaugeValue
+    this.launchParams.power = this.gaugeValue
     this.launch()
   }
 
@@ -539,9 +542,7 @@ export class GameScene extends BaseScene {
   }
 
   private applyLaunchVelocity(obj: LaunchedObject) {
-    const powerMultiplier = calculatePowerMultiplier(this.power)
-    const speed = calculateSpeed(powerMultiplier)
-    const velocity = calculateInitialVelocity(this.angleH, this.angleV, speed)
+    const velocity = calculateInitialVelocity(this.launchParams)
 
     const randomX = (Math.random() - 0.5) * 2
     const randomZ = (Math.random() - 0.5) * 1
@@ -560,7 +561,7 @@ export class GameScene extends BaseScene {
   }
 
   private animateCameraForFlight() {
-    const hRad = (this.angleH * Math.PI) / 180
+    const hRad = degreesToRadians(this.launchParams.angleH)
 
     gsap.to(this.game.camera.position, {
       x: Math.sin(hRad) * 3,
@@ -585,7 +586,7 @@ export class GameScene extends BaseScene {
 
     const mesh = new THREE.Mesh(geometry, material)
     mesh.castShadow = true
-    mesh.position.copy(this.launchPosition)
+    mesh.position.copy(this.launchParams.launchPosition)
     this.scene.add(mesh)
 
     const body = new CANNON.Body({
@@ -595,7 +596,8 @@ export class GameScene extends BaseScene {
       angularDamping: 0.6
     })
     body.addShape(shape)
-    body.position.set(this.launchPosition.x, this.launchPosition.y, this.launchPosition.z)
+    const pos = this.launchParams.launchPosition
+    body.position.set(pos.x, pos.y, pos.z)
     this.world!.addBody(body)
 
     return { mesh, body, type: this.currentType }
@@ -628,9 +630,9 @@ export class GameScene extends BaseScene {
 
   private resetForNextLaunch() {
     this.phase = 'direction'
-    this.angleH = 0
-    this.angleV = 45
-    this.power = 50
+    this.launchParams.angleH = 0
+    this.launchParams.angleV = 45
+    this.launchParams.power = 50
     this.gaugeValue = 50
     this.gaugeDirection = 1
 
@@ -727,5 +729,26 @@ export class GameScene extends BaseScene {
     if (isOnTop && isAboveTop) return 35
     if (dist < 1.5) return 15
     return 0
+  }
+
+  /**
+   * レイアウト変更時の調整
+   */
+  protected adjustLayout(layout: LayoutInfo): void {
+    // ゲージコンテナのスケールを調整
+    if (this.gaugeContainer) {
+      const scale = calculateLayoutScale(layout, 0.7)
+      // 基本スケールは0.3なので、それに掛け合わせる
+      const adjustedScale = 0.3 * scale
+      this.gaugeContainer.children.forEach((child) => {
+        child.scale.setScalar(adjustedScale)
+      })
+    }
+
+    // UIコンテナのスケールを調整
+    if (this.uiContainer) {
+      const scale = calculateLayoutScale(layout, 0.7)
+      this.uiContainer.scale.setScalar(scale)
+    }
   }
 }

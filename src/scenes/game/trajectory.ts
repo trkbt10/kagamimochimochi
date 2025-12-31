@@ -1,10 +1,16 @@
 import * as THREE from 'three'
+import {
+  type LaunchParameters,
+  calculatePowerMultiplier,
+  calculateSpeed,
+  calculateInitialVelocity
+} from '../../types/launch'
 
-export type TrajectoryParams = {
-  angleH: number
-  angleV: number
-  power: number
-  launchPosition: THREE.Vector3
+// 後方互換性のため再エクスポート
+export { calculatePowerMultiplier, calculateSpeed }
+
+/** @deprecated LaunchParameters を使用してください */
+export type TrajectoryParams = LaunchParameters & {
   gravity?: number
 }
 
@@ -16,34 +22,13 @@ export type TrajectoryResult = {
 const DEFAULT_GRAVITY = -9.8
 const TIME_STEP = 0.05
 
-export const calculatePowerMultiplier = (power: number): number => 0.12 + (power / 100) * 0.15
-
-export const calculateSpeed = (powerMultiplier: number): number => 8 + powerMultiplier * 20
-
-export const calculateInitialVelocity = (
-  angleH: number,
-  angleV: number,
-  speed: number
-): THREE.Vector3 => {
-  const hRad = (angleH * Math.PI) / 180
-  const vRad = (angleV * Math.PI) / 180
-
-  return new THREE.Vector3(
-    Math.sin(hRad) * speed * Math.cos(vRad),
-    Math.sin(vRad) * speed,
-    -Math.cos(hRad) * speed * Math.cos(vRad)
-  )
-}
-
 export const calculateTrajectory = (
   params: TrajectoryParams,
   numPoints: number
 ): TrajectoryResult => {
-  const { angleH, angleV, power, launchPosition, gravity = DEFAULT_GRAVITY } = params
+  const { launchPosition, gravity = DEFAULT_GRAVITY } = params
 
-  const powerMultiplier = calculatePowerMultiplier(power)
-  const speed = calculateSpeed(powerMultiplier)
-  const velocity = calculateInitialVelocity(angleH, angleV, speed)
+  const velocity = calculateInitialVelocity(params)
 
   const points: THREE.Vector3[] = []
   let x = launchPosition.x

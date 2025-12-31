@@ -10,6 +10,12 @@ export class AudioManager {
   public masterVolume = 0.7
   public bgmVolume = 0.5
 
+  private isSilentMode = false
+
+  // Base64エンコードされた短い無音mp3（約0.1秒）
+  private static readonly SILENT_AUDIO_DATA =
+    'data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAYYWkJfyAAAAAAAAAAAAAAAAAAAAAAAA//tQZAAP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAETEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV'
+
   constructor() {
     this.initAudioContext()
   }
@@ -38,6 +44,32 @@ export class AudioManager {
     if (this.audioContext?.state === 'suspended') {
       await this.audioContext.resume()
     }
+    await this.detectSilentMode()
+  }
+
+  async detectSilentMode(): Promise<boolean> {
+    const audio = new Audio(AudioManager.SILENT_AUDIO_DATA)
+    audio.volume = 0.01
+
+    try {
+      await audio.play()
+      await new Promise(resolve => setTimeout(resolve, 100))
+
+      // サイレントモードの場合、HTML5 Audioは再生されない
+      const isSilent = audio.paused || audio.currentTime === 0
+      audio.pause()
+
+      this.isSilentMode = isSilent
+      return isSilent
+    } catch {
+      // 再生失敗 = サイレントモードの可能性
+      this.isSilentMode = true
+      return true
+    }
+  }
+
+  private shouldPlayAudio(): boolean {
+    return !this.isSilentMode
   }
 
   setMasterVolume(value: number) {
@@ -55,7 +87,7 @@ export class AudioManager {
   }
 
   playBgm() {
-    if (!this.audioContext || !this.bgmGain || this.bgmPlaying) return
+    if (!this.audioContext || !this.bgmGain || this.bgmPlaying || !this.shouldPlayAudio()) return
 
     this.bgmPlaying = true
 
@@ -141,7 +173,7 @@ export class AudioManager {
     volume: number = 0.5,
     freqEnd?: number
   ) {
-    if (!this.audioContext || !this.sfxGain) return
+    if (!this.audioContext || !this.sfxGain || !this.shouldPlayAudio()) return
 
     const osc = this.audioContext.createOscillator()
     const gain = this.audioContext.createGain()
