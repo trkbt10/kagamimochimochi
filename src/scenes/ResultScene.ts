@@ -8,6 +8,7 @@ import { createTextSprite } from '../ui/text-sprite'
 import { Button3D } from '../ui/button-3d'
 import { createConfettiSystem, updateConfetti } from '../ui/confetti'
 import { createMochiGeometry } from './game/mochi-handler'
+import { GlitterScoreRenderer } from '../effects'
 
 type ScoreTier = 'perfect' | 'excellent' | 'good' | 'average' | 'poor' | 'fail'
 
@@ -121,6 +122,9 @@ export class ResultScene extends BaseScene {
   // アニメーション用
   private displayedScore = 0
 
+  // ギラギラスコアレンダラー
+  private glitterScoreRenderer: GlitterScoreRenderer | null = null
+
   constructor(game: Game) {
     super(game)
     this.boundOnPointerMove = this.onPointerMove.bind(this)
@@ -132,6 +136,9 @@ export class ResultScene extends BaseScene {
     this.score = (data?.score as number) ?? 0
     this.displayedScore = 0
 
+    // カメラ位置を明示的にリセット
+    this.resetCamera()
+
     this.setupScene()
     this.buildUI3D()
     this.setupEventListeners()
@@ -140,6 +147,11 @@ export class ResultScene extends BaseScene {
 
     const tierConfig = getScoreTierConfig(this.score)
     this.playResultAudio(tierConfig.isSuccess)
+  }
+
+  private resetCamera() {
+    this.game.camera.position.set(0, 5, 12)
+    this.game.camera.lookAt(0, 2, 0)
   }
 
   private playResultAudio(isSuccess: boolean) {
@@ -154,6 +166,8 @@ export class ResultScene extends BaseScene {
   async exit() {
     this.removeEventListeners()
     this.unregisterLayoutListener()
+    this.glitterScoreRenderer?.dispose()
+    this.glitterScoreRenderer = null
     this.clearScene()
   }
 
@@ -169,6 +183,12 @@ export class ResultScene extends BaseScene {
     // 紙吹雪のアニメーション
     if (this.confetti) {
       updateConfetti(this.confetti, delta)
+    }
+
+    // ギラギラスコアの更新
+    if (this.glitterScoreRenderer) {
+      this.glitterScoreRenderer.update(delta)
+      this.glitterScoreRenderer.getGroup().lookAt(this.game.camera.position)
     }
 
     // UIをカメラに向ける
@@ -300,19 +320,15 @@ export class ResultScene extends BaseScene {
     this.scoreLabelSprite.position.set(0, 2.6, 0)
     this.uiGroup.add(this.scoreLabelSprite)
 
-    // スコア表示
-    this.scoreSprite = createTextSprite({
-      text: '0',
-      fontSize: 144,
-      color: '#FFD700',
-      glowColor: '#FFD700',
-      glowBlur: 30,
-      shadowColor: '#FFA500',
-      shadowBlur: 10
-    })
+    // ギラギラスコアレンダラー初期化
+    this.glitterScoreRenderer = new GlitterScoreRenderer(this.scene)
+
+    // 初期スコア表示（0から始まる）
+    this.scoreSprite = this.glitterScoreRenderer.createScoreDisplay(0)
     this.scoreSprite.position.set(0, 1.5, 0)
     this.scoreSprite.scale.multiplyScalar(2)
-    this.uiGroup.add(this.scoreSprite)
+    this.glitterScoreRenderer.getGroup().position.copy(this.uiGroup.position)
+    this.glitterScoreRenderer.getGroup().position.y += 1.5
 
     // 評価絵文字
     this.ratingSprite = createTextSprite({
@@ -532,23 +548,15 @@ export class ResultScene extends BaseScene {
   }
 
   private updateScoreDisplay() {
-    if (this.scoreSprite && this.uiGroup) {
-      // 既存のスコアスプライトを削除
-      this.uiGroup.remove(this.scoreSprite)
-
-      // 新しいスコアスプライトを作成
-      this.scoreSprite = createTextSprite({
-        text: this.displayedScore.toString(),
-        fontSize: 144,
-        color: '#FFD700',
-        glowColor: '#FFD700',
-        glowBlur: 30,
-        shadowColor: '#FFA500',
-        shadowBlur: 10
-      })
-      this.scoreSprite.position.set(0, 1.5, 0)
-      this.scoreSprite.scale.multiplyScalar(2)
-      this.uiGroup.add(this.scoreSprite)
+    if (this.glitterScoreRenderer && this.uiGroup) {
+      const newSprite = this.glitterScoreRenderer.updateScore(this.displayedScore)
+      if (newSprite) {
+        this.scoreSprite = newSprite
+        this.scoreSprite.position.set(0, 0, 0)
+        this.scoreSprite.scale.multiplyScalar(2)
+        this.glitterScoreRenderer.getGroup().position.copy(this.uiGroup.position)
+        this.glitterScoreRenderer.getGroup().position.y += 1.5
+      }
     }
   }
 

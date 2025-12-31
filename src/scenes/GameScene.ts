@@ -41,6 +41,7 @@ import {
   updateUITextSprite,
   updateUIContainerPosition
 } from './game/text-sprite'
+import { EffectManager } from '../effects'
 
 type GamePhase = 'direction' | 'elevation' | 'power' | 'flying' | 'landed' | 'complete'
 
@@ -96,6 +97,9 @@ export class GameScene extends BaseScene {
 
   private previewMesh: THREE.Mesh | null = null
 
+  private effectManager: EffectManager | null = null
+  private timeScale = 1
+
   constructor(game: Game) {
     super(game)
   }
@@ -111,6 +115,7 @@ export class GameScene extends BaseScene {
     this.setupCamera()
     this.createPreviewMesh()
     this.registerLayoutListener()
+    this.effectManager = new EffectManager(this.scene)
     this.game.audioManager.playBgm()
   }
 
@@ -120,18 +125,22 @@ export class GameScene extends BaseScene {
     this.removeEventListeners()
     this.unregisterLayoutListener()
     this.removePreviewMesh()
+    this.effectManager?.dispose()
+    this.effectManager = null
     this.clearScene()
     this.world = null
   }
 
   update(delta: number) {
-    this.updatePhysics(delta)
+    const scaledDelta = delta * this.timeScale
+    this.updatePhysics(scaledDelta)
     this.syncMeshesWithBodies()
     this.updateAimArrowIfNeeded()
     this.updateGaugePositionIfVisible()
     this.updateUIPositionIfVisible()
     this.updateGaugeOscillation(delta)
     this.checkLandingCondition()
+    this.effectManager?.update(delta)
   }
 
   private updatePhysics(delta: number) {
@@ -274,6 +283,7 @@ export class GameScene extends BaseScene {
     this.launchParams = createDefaultLaunchParameters()
     this.gaugeValue = 50
     this.gaugeDirection = 1
+    this.timeScale = 1
   }
 
   private setupPhysics() {
@@ -540,6 +550,10 @@ export class GameScene extends BaseScene {
     this.launchedObjects.push(obj)
 
     this.applyLaunchVelocity(obj)
+
+    const launchDirection = calculateInitialVelocity(this.launchParams).normalize()
+    this.effectManager?.emitSmoke(this.launchParams.launchPosition, launchDirection)
+
     this.animateCameraForFlight()
   }
 
@@ -609,11 +623,63 @@ export class GameScene extends BaseScene {
     this.phase = 'landed'
     this.game.audioManager.playLand()
 
-    updateUITextSprite(this.instructionSprite!, '着地！', 60, '#00FF00')
+    const landingPos = new THREE.Vector3(
+      this.currentObject!.body.position.x,
+      this.currentObject!.body.position.y,
+      this.currentObject!.body.position.z
+    )
 
-    setTimeout(() => {
-      this.proceedToNextObject()
-    }, 1500)
+    // カメラの現在位置を保存
+    const originalCameraPos = this.game.camera.position.clone()
+    const originalLookAt = new THREE.Vector3(0, 0, 5)
+
+    // ヒットストップ開始
+    this.timeScale = 0.05
+
+    // 土埃と衝撃波
+    this.effectManager?.emitDust(landingPos, 1)
+    this.effectManager?.triggerShockwave(landingPos)
+
+    updateUITextSprite(this.instructionSprite!, '', 60, '#00FF00')
+
+    // ヒットストップ後にカメラカット
+    gsap.timeline()
+      .to({}, { duration: 0.15 }) // ヒットストップ維持
+      .call(() => {
+        // カメラをお餅にカット（瞬時に移動）
+        this.game.camera.position.set(
+          landingPos.x + 2,
+          landingPos.y + 2,
+          landingPos.z + 3
+        )
+        this.game.camera.lookAt(landingPos)
+
+        // ヒットストップ解除
+        gsap.to(this, {
+          timeScale: 1,
+          duration: 0.3,
+          ease: 'power2.out'
+        })
+
+        // 文字表示（完了後にカメラを戻す）
+        this.effectManager?.showCutIn('着地！', this.game.camera, () => {
+          // カメラを元に戻す（スムーズに）
+          gsap.to(this.game.camera.position, {
+            x: originalCameraPos.x,
+            y: originalCameraPos.y,
+            z: originalCameraPos.z,
+            duration: 0.4,
+            ease: 'power2.out',
+            onUpdate: () => {
+              this.game.camera.lookAt(originalLookAt)
+            },
+            onComplete: () => {
+              this.game.camera.lookAt(originalLookAt)
+              this.proceedToNextObject()
+            }
+          })
+        })
+      })
   }
 
   private proceedToNextObject() {
@@ -672,7 +738,38 @@ export class GameScene extends BaseScene {
 
   private calculateAndShowResult() {
     const score = this.calculateScore()
-    this.game.sceneManager.switchTo('result', { score })
+
+    if (this.uiContainer) {
+      this.uiContainer.visible = false
+    }
+
+    gsap.timeline()
+      .to(this.game.camera.position, {
+        x: DAI_POSITION.x,
+        y: DAI_POSITION.y + 4,
+        z: DAI_POSITION.z + 5,
+        duration: 1.2,
+        ease: 'power2.inOut',
+        onUpdate: () => {
+          this.game.camera.lookAt(DAI_POSITION.x, DAI_POSITION.y + 1, DAI_POSITION.z)
+        }
+      })
+      .to(this.game.camera.position, {
+        y: DAI_POSITION.y + 2,
+        z: DAI_POSITION.z + 2,
+        duration: 0.6,
+        ease: 'power3.in',
+        onUpdate: () => {
+          this.game.camera.lookAt(DAI_POSITION.x, DAI_POSITION.y + 0.5, DAI_POSITION.z)
+        },
+        onComplete: () => {
+          this.game.postProcessManager?.enableMotionBlur(0.7, 0.6)
+
+          setTimeout(() => {
+            this.game.sceneManager.switchTo('result', { score })
+          }, 100)
+        }
+      })
   }
 
   private calculateScore(): number {

@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { SceneManager } from './SceneManager'
 import { AudioManager } from './AudioManager'
 import { LayoutManager } from './layout'
+import { PostProcessManager } from '../postprocess'
 import { IntroScene } from '../scenes/IntroScene'
 import { GameScene } from '../scenes/GameScene'
 import { ResultScene } from '../scenes/ResultScene'
@@ -12,6 +13,7 @@ export class Game {
   public sceneManager: SceneManager
   public audioManager: AudioManager
   public layoutManager: LayoutManager
+  public postProcessManager: PostProcessManager | null = null
   public clock: THREE.Clock
 
   private container: HTMLElement
@@ -39,6 +41,9 @@ export class Game {
     this.sceneManager.register('game', new GameScene(this))
     this.sceneManager.register('result', new ResultScene(this))
 
+    // Initialize post-processing (after scenes are registered)
+    this.initPostProcessing()
+
     // Start with intro scene
     await this.sceneManager.switchTo('intro')
 
@@ -48,6 +53,17 @@ export class Game {
 
     // Start animation loop
     this.animate()
+  }
+
+  private initPostProcessing() {
+    const introScene = this.sceneManager.getScene('intro')
+    if (introScene) {
+      this.postProcessManager = new PostProcessManager(
+        this.renderer,
+        introScene.getThreeScene(),
+        this.camera
+      )
+    }
   }
 
   private setupRenderer() {
@@ -76,6 +92,7 @@ export class Game {
     this.camera.aspect = width / height
     this.camera.updateProjectionMatrix()
     this.renderer.setSize(width, height)
+    this.postProcessManager?.setSize(width, height)
 
     // Update layout (notifies all listeners)
     this.layoutManager.update(width, height)
@@ -89,7 +106,12 @@ export class Game {
 
     const currentScene = this.sceneManager.getCurrentScene()
     if (currentScene) {
-      this.renderer.render(currentScene.getThreeScene(), this.camera)
+      if (this.postProcessManager?.enabled) {
+        this.postProcessManager.setScene(currentScene.getThreeScene())
+        this.postProcessManager.render()
+      } else {
+        this.renderer.render(currentScene.getThreeScene(), this.camera)
+      }
     }
   }
 }

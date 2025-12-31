@@ -32,6 +32,10 @@ export class SceneManager {
     return this.currentScene
   }
 
+  getScene(name: string): BaseScene | undefined {
+    return this.scenes.get(name)
+  }
+
   update(delta: number) {
     if (this.currentScene) {
       this.currentScene.update(delta)

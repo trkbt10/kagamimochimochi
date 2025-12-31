@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeAll } from 'bun:test'
+import { describe, test, expect } from 'bun:test'
 import { createConfettiSystem, updateConfetti } from './confetti'
 import * as THREE from 'three'
 
@@ -77,10 +77,10 @@ describe('updateConfetti', () => {
 
     updateConfetti(confetti, 0.5)
 
-    const getPositionComponent = (positions: THREE.BufferAttribute, i: number, component: number): number => {
-      if (component === 0) return positions.getX(i)
-      if (component === 1) return positions.getY(i)
-      return positions.getZ(i)
+    const getPositionComponent = (pos: THREE.BufferAttribute | THREE.InterleavedBufferAttribute, i: number, component: number): number => {
+      if (component === 0) return pos.getX(i)
+      if (component === 1) return pos.getY(i)
+      return pos.getZ(i)
     }
 
     const hasChanged = initialPositions.some((val, idx) => {
