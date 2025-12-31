@@ -42,6 +42,7 @@ import {
   updateUIContainerPosition
 } from './game/text-sprite'
 import { EffectManager } from '../effects'
+import { StickinessManager } from './game/stickiness-manager'
 import { SkyGradient } from '../effects/SkyGradient'
 import { SnowEffect } from '../effects/SnowEffect'
 import { MountainFuji } from '../objects/MountainFuji'
@@ -68,6 +69,7 @@ export class GameScene extends BaseScene {
 
   private mochiMaterial: CANNON.Material | null = null
   private groundMaterial: CANNON.Material | null = null
+  private stickinessManager: StickinessManager | null = null
 
   private flyingStartTime = 0
 
@@ -139,6 +141,10 @@ export class GameScene extends BaseScene {
     this.effectManager?.dispose()
     this.effectManager = null
 
+    // 粘性マネージャーのクリーンアップ
+    this.stickinessManager?.dispose()
+    this.stickinessManager = null
+
     // お正月演出のクリーンアップ
     this.skyGradient?.dispose()
     this.snowEffect?.dispose()
@@ -171,6 +177,7 @@ export class GameScene extends BaseScene {
 
   private updatePhysics(delta: number) {
     this.world?.step(1 / 60, delta, 3)
+    this.stickinessManager?.update()
   }
 
   private syncMeshesWithBodies() {
@@ -311,6 +318,7 @@ export class GameScene extends BaseScene {
     this.gaugeDirection = 1
     this.timeScale = 1
     this.skyTime = 0
+    this.stickinessManager?.dispose()
   }
 
   private setupPhysics() {
@@ -324,6 +332,10 @@ export class GameScene extends BaseScene {
     this.setupGroundBody()
     this.setupDaiBody()
     this.setupContactMaterials()
+
+    // 粘性マネージャーの初期化
+    this.stickinessManager = new StickinessManager(this.world!)
+    this.setupCollisionListeners()
   }
 
   private setupGroundBody() {
@@ -355,6 +367,37 @@ export class GameScene extends BaseScene {
       restitution: 0.01
     })
     this.world!.addContactMaterial(mochiMochiContact)
+  }
+
+  private setupCollisionListeners(): void {
+    // 餅オブジェクト同士の衝突を検出
+    this.world!.addEventListener(
+      'beginContact',
+      (event: { bodyA: CANNON.Body; bodyB: CANNON.Body }) => {
+        const { bodyA, bodyB } = event
+
+        // 両方が餅オブジェクト（地面・台座ではない）かをチェック
+        const isMochiA = this.launchedObjects.some((obj) => obj.body === bodyA)
+        const isMochiB = this.launchedObjects.some((obj) => obj.body === bodyB)
+
+        if (!isMochiA || !isMochiB) return
+
+        // 接触法線を取得
+        const contact = this.world!.contacts.find(
+          (c) =>
+            (c.bi === bodyA && c.bj === bodyB) ||
+            (c.bi === bodyB && c.bj === bodyA)
+        )
+
+        if (contact) {
+          const normal = contact.ni.clone()
+          // 法線の向きを正規化（常に下から上への向き）
+          if (contact.bi === bodyB) normal.negate()
+
+          this.stickinessManager?.onCollision(bodyA, bodyB, normal)
+        }
+      }
+    )
   }
 
   private setupScene() {

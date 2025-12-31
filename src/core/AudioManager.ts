@@ -41,10 +41,22 @@ export class AudioManager {
   }
 
   async resume() {
-    if (this.audioContext?.state === 'suspended') {
-      await this.audioContext.resume()
+    const timeout = (ms: number) =>
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), ms))
+
+    try {
+      if (this.audioContext?.state === 'suspended') {
+        await Promise.race([this.audioContext.resume(), timeout(1000)])
+      }
+    } catch {
+      // タイムアウトまたは失敗 - 無視して続行
     }
-    await this.detectSilentMode()
+
+    try {
+      await Promise.race([this.detectSilentMode(), timeout(500)])
+    } catch {
+      // タイムアウトまたは失敗 - 無視して続行
+    }
   }
 
   async detectSilentMode(): Promise<boolean> {
@@ -52,7 +64,16 @@ export class AudioManager {
     audio.volume = 0.01
 
     try {
-      await audio.play()
+      const playPromise = audio.play()
+
+      // play() が undefined を返す場合がある（古いブラウザ）
+      if (playPromise) {
+        await Promise.race([
+          playPromise,
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 200))
+        ])
+      }
+
       await new Promise(resolve => setTimeout(resolve, 100))
 
       // サイレントモードの場合、HTML5 Audioは再生されない
@@ -62,7 +83,7 @@ export class AudioManager {
       this.isSilentMode = isSilent
       return isSilent
     } catch {
-      // 再生失敗 = サイレントモードの可能性
+      // 再生失敗またはタイムアウト = サイレントモードとして扱う
       this.isSilentMode = true
       return true
     }

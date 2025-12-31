@@ -4,7 +4,7 @@ import { BaseScene } from './BaseScene'
 import type { Game } from '../core/Game'
 import type { LayoutInfo } from '../core/layout'
 import { redistributeParticles, calculateLayoutScale } from '../core/layout'
-import { createTextSprite } from '../ui/text-sprite'
+import { createTextSprite, createPachinkoTextSprite } from '../ui/text-sprite'
 import { Button3D } from '../ui/button-3d'
 import { Slider3D } from '../ui/slider-3d'
 import { createPanel3D } from '../ui/panel-3d'
@@ -29,6 +29,7 @@ export class IntroScene extends BaseScene {
   // UI要素
   private uiGroup: THREE.Group | null = null
   private titleSprite: THREE.Sprite | null = null
+  private titleSubSprite: THREE.Sprite | null = null
   private subtitleSprite: THREE.Sprite | null = null
   private instructionSprite: THREE.Sprite | null = null
   private startButton: Button3D | null = null
@@ -301,21 +302,37 @@ export class IntroScene extends BaseScene {
     this.uiGroup.position.set(0, 3, 3)
     this.scene.add(this.uiGroup)
 
-    // タイトル
-    this.titleSprite = createTextSprite({
-      text: '鏡餅スタッキング',
-      fontSize: 84,
-      color: '#FFD700',
+    // パチンコ風スタイル設定
+    const pachinkoStyle = {
+      outlines: [
+        { color: '#000000', width: 12 },
+        { color: '#8B0000', width: 9 },
+        { color: '#FF4500', width: 6 },
+        { color: '#FFD700', width: 3 }
+      ],
+      gradientColors: ['#FFFACD', '#FFD700', '#DAA520', '#B8860B'],
+      bevelHighlight: 'rgba(255,255,255,0.9)',
+      bevelShadow: 'rgba(0,0,0,0.5)',
       glowColor: '#FFD700',
-      glowBlur: 20,
-      shadowColor: '#8B0000',
-      shadowBlur: 8
-    })
-    this.titleSprite.position.set(0, 2.8, 0)
-    this.titleSprite.scale.multiplyScalar(1.5)
-    this.uiGroup.add(this.titleSprite)
+      glowBlur: 15
+    }
+    const titleScale = 1.0
 
-    // サブタイトル
+    // スプライト作成（位置は後で計算）
+    this.titleSprite = createPachinkoTextSprite({
+      text: '鏡餅',
+      fontSize: 110,
+      ...pachinkoStyle
+    })
+    this.titleSprite.scale.multiplyScalar(titleScale)
+
+    this.titleSubSprite = createPachinkoTextSprite({
+      text: 'スタッキング',
+      fontSize: 70,
+      ...pachinkoStyle
+    })
+    this.titleSubSprite.scale.multiplyScalar(titleScale)
+
     this.subtitleSprite = createTextSprite({
       text: 'あけましておめでとうございます！',
       fontSize: 40,
@@ -323,38 +340,35 @@ export class IntroScene extends BaseScene {
       shadowColor: 'rgba(0,0,0,0.8)',
       shadowBlur: 4
     })
-    this.subtitleSprite.position.set(0, 1.7, 0)
-    this.uiGroup.add(this.subtitleSprite)
 
-    // 説明テキスト
     this.instructionSprite = createTextSprite({
       text: '餅を積み上げて100点を目指せ！',
       fontSize: 32,
       color: '#cccccc'
     })
-    this.instructionSprite.position.set(0, 0.5, 0)
-    this.uiGroup.add(this.instructionSprite)
 
-    // スタートボタン
+    // ボタン作成
+    const startButtonHeight = 0.9
+    const settingsButtonHeight = 0.7
     this.startButton = new Button3D({
       text: 'スタート',
       width: 3.2,
-      height: 0.9,
+      height: startButtonHeight,
       fontSize: 48,
       onClick: async () => {
         this.game.audioManager.playClick()
-        await this.game.audioManager.resume()
-        this.game.sceneManager.switchTo('game')
+
+        // Audio 処理は非同期で実行（待たない）- iOS で永久 pending になる問題を回避
+        this.game.audioManager.resume().catch(() => {})
+
+        // シーン遷移を即座に実行
+        await this.game.sceneManager.switchTo('game')
       }
     })
-    this.startButton.position.set(0, -0.7, 0)
-    this.uiGroup.add(this.startButton)
-
-    // 設定ボタン
     this.settingsButton = new Button3D({
       text: '設定',
       width: 2.8,
-      height: 0.7,
+      height: settingsButtonHeight,
       fontSize: 40,
       backgroundColor: 0xdddddd,
       hoverColor: 0xeeeeee,
@@ -366,7 +380,74 @@ export class IntroScene extends BaseScene {
         this.toggleSettings()
       }
     })
-    this.settingsButton.position.set(0, -1.9, 0)
+
+    // 各要素の高さを取得
+    const heights = {
+      title: this.titleSprite.scale.y,
+      titleSub: this.titleSubSprite.scale.y,
+      subtitle: this.subtitleSprite.scale.y,
+      instruction: this.instructionSprite.scale.y,
+      startBtn: startButtonHeight,
+      settingsBtn: settingsButtonHeight
+    }
+
+    // gap設定
+    const gaps = {
+      titleToSub: 0.05,      // 鏡餅 - スタッキング間（タイト）
+      subToGreeting: 0.3,    // スタッキング - あけおめ間
+      greetingToInst: 0.15,  // あけおめ - 説明間
+      instToStart: 0.4,      // 説明 - スタートボタン間
+      startToSettings: 0.25  // スタート - 設定ボタン間
+    }
+
+    // 全体の高さを計算
+    const totalHeight =
+      heights.title +
+      gaps.titleToSub +
+      heights.titleSub +
+      gaps.subToGreeting +
+      heights.subtitle +
+      gaps.greetingToInst +
+      heights.instruction +
+      gaps.instToStart +
+      heights.startBtn +
+      gaps.startToSettings +
+      heights.settingsBtn
+
+    // 中央揃えの基準点（元のレイアウトの中心付近）
+    const centerY = 0.5
+    let currentY = centerY + totalHeight / 2
+
+    // 上から順に配置
+    currentY -= heights.title / 2
+    this.titleSprite.position.set(0, currentY, 0)
+    currentY -= heights.title / 2 + gaps.titleToSub
+
+    currentY -= heights.titleSub / 2
+    this.titleSubSprite.position.set(0, currentY, 0)
+    currentY -= heights.titleSub / 2 + gaps.subToGreeting
+
+    currentY -= heights.subtitle / 2
+    this.subtitleSprite.position.set(0, currentY, 0)
+    currentY -= heights.subtitle / 2 + gaps.greetingToInst
+
+    currentY -= heights.instruction / 2
+    this.instructionSprite.position.set(0, currentY, 0)
+    currentY -= heights.instruction / 2 + gaps.instToStart
+
+    currentY -= heights.startBtn / 2
+    this.startButton.position.set(0, currentY, 0)
+    currentY -= heights.startBtn / 2 + gaps.startToSettings
+
+    currentY -= heights.settingsBtn / 2
+    this.settingsButton.position.set(0, currentY, 0)
+
+    // UIグループに追加
+    this.uiGroup.add(this.titleSprite)
+    this.uiGroup.add(this.titleSubSprite)
+    this.uiGroup.add(this.subtitleSprite)
+    this.uiGroup.add(this.instructionSprite)
+    this.uiGroup.add(this.startButton)
     this.uiGroup.add(this.settingsButton)
 
     // 設定パネルを作成
@@ -695,11 +776,12 @@ export class IntroScene extends BaseScene {
 
     // Animate title with pulse
     if (this.titleSprite) {
+      const baseTitleScale = this.titleSprite.scale.clone()
       const pulseAnimation = () => {
         if (!this.titleSprite) return
         gsap.to(this.titleSprite.scale, {
-          x: this.titleSprite.scale.x * 1.05,
-          y: this.titleSprite.scale.y * 1.05,
+          x: baseTitleScale.x * 1.05,
+          y: baseTitleScale.y * 1.05,
           duration: 1,
           ease: 'power1.inOut',
           yoyo: true,
@@ -707,6 +789,23 @@ export class IntroScene extends BaseScene {
         })
       }
       setTimeout(pulseAnimation, 1500)
+    }
+
+    // Animate titleSubSprite with pulse (slightly offset for visual interest)
+    if (this.titleSubSprite) {
+      const baseSubTitleScale = this.titleSubSprite.scale.clone()
+      const pulseAnimation = () => {
+        if (!this.titleSubSprite) return
+        gsap.to(this.titleSubSprite.scale, {
+          x: baseSubTitleScale.x * 1.05,
+          y: baseSubTitleScale.y * 1.05,
+          duration: 1.2,
+          ease: 'power1.inOut',
+          yoyo: true,
+          repeat: -1
+        })
+      }
+      setTimeout(pulseAnimation, 1700)
     }
   }
 }
