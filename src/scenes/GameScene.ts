@@ -939,6 +939,41 @@ export class GameScene extends BaseScene {
     })
   }
 
+  /**
+   * お餅らしい形状を作成（下が広く上が丸い鏡餅型）
+   * @param radius 底面の半径
+   * @param height 高さ
+   */
+  private createMochiGeometry(radius: number, height: number): THREE.BufferGeometry {
+    // LatheGeometryで回転体を作成
+    // お餅の断面形状：下が広く、上に向かって丸みを帯びる
+    const points: THREE.Vector2[] = []
+    const segments = 16
+
+    for (let i = 0; i <= segments; i++) {
+      const t = i / segments // 0 から 1
+      // 下から上への曲線
+      // 底面は広く (radius)、上は狭く (radius * 0.65)
+      const topRadius = radius * 0.65
+
+      // 滑らかな曲線で下が広く上が狭い形状
+      // easeInOut的な曲線で自然な丸みを出す
+      const ease = t * t * (3 - 2 * t) // smoothstep
+      const r = radius - (radius - topRadius) * ease
+
+      // 高さ方向
+      const y = -height / 2 + height * t
+
+      points.push(new THREE.Vector2(r, y))
+    }
+
+    // 上面を閉じる
+    points.push(new THREE.Vector2(0, height / 2))
+
+    const geometry = new THREE.LatheGeometry(points, 32)
+    return geometry
+  }
+
   private createLaunchObject(): LaunchedObject {
     let geometry: THREE.BufferGeometry
     let material: THREE.Material
@@ -947,25 +982,27 @@ export class GameScene extends BaseScene {
 
     switch (this.currentType) {
       case 'base':
-        geometry = new THREE.SphereGeometry(1.5, 32, 24)
-        geometry.scale(1, 0.5, 1)
+        // お餅らしい形状：下が広く上が丸い鏡餅型
+        geometry = this.createMochiGeometry(1.5, 0.75)
         material = new THREE.MeshStandardMaterial({
           color: 0xfff8e7,
           roughness: 0.9,
           metalness: 0.0
         })
-        shape = new CANNON.Sphere(1.2)
+        // 下が広い円柱で安定性向上（転がりにくい）
+        shape = new CANNON.Cylinder(1.0, 1.5, 0.75, 16)
         mass = 3
         break
       case 'top':
-        geometry = new THREE.SphereGeometry(1.1, 32, 24)
-        geometry.scale(1, 0.5, 1)
+        // 上餅も同様に鏡餅型
+        geometry = this.createMochiGeometry(1.1, 0.55)
         material = new THREE.MeshStandardMaterial({
           color: 0xfff8e7,
           roughness: 0.9,
           metalness: 0.0
         })
-        shape = new CANNON.Sphere(0.9)
+        // 下が広い円柱で安定性向上
+        shape = new CANNON.Cylinder(0.7, 1.1, 0.55, 16)
         mass = 2
         break
       case 'mikan':
