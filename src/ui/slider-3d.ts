@@ -92,7 +92,7 @@ function createHandleMesh(
   normalizedValue: number,
   color: number
 ): THREE.Mesh {
-  const geometry = new THREE.SphereGeometry(0.12, 16, 16)
+  const geometry = new THREE.SphereGeometry(0.15, 16, 16)
   const material = new THREE.MeshStandardMaterial({
     color,
     roughness: 0.3,

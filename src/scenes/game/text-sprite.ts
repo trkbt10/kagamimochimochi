@@ -56,7 +56,7 @@ const createTextCanvas = (
 }
 
 export const createTextSprite = (text: string, size: number): THREE.Sprite => {
-  const { canvas, dpr } = createTextCanvas(text, DEFAULT_OPTIONS)
+  const { canvas } = createTextCanvas(text, DEFAULT_OPTIONS)
 
   const texture = new THREE.CanvasTexture(canvas)
   const material = new THREE.SpriteMaterial({ map: texture, transparent: true })

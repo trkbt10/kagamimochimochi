@@ -294,16 +294,16 @@ export class ResultScene extends BaseScene {
     // スコアラベル
     this.scoreLabelSprite = createTextSprite({
       text: 'YOUR SCORE',
-      fontSize: 36,
+      fontSize: 44,
       color: '#ffffff'
     })
-    this.scoreLabelSprite.position.set(0, 2.5, 0)
+    this.scoreLabelSprite.position.set(0, 2.6, 0)
     this.uiGroup.add(this.scoreLabelSprite)
 
     // スコア表示
     this.scoreSprite = createTextSprite({
       text: '0',
-      fontSize: 120,
+      fontSize: 144,
       color: '#FFD700',
       glowColor: '#FFD700',
       glowBlur: 30,
@@ -317,31 +317,31 @@ export class ResultScene extends BaseScene {
     // 評価絵文字
     this.ratingSprite = createTextSprite({
       text: rating.emoji,
-      fontSize: 72,
+      fontSize: 80,
       color: '#ffffff'
     })
-    this.ratingSprite.position.set(0, 0.3, 0)
+    this.ratingSprite.position.set(0, 0.2, 0)
     this.ratingSprite.scale.set(0, 0, 0) // アニメーション用に初期化
     this.uiGroup.add(this.ratingSprite)
 
     // 評価テキスト
     this.ratingTextSprite = createTextSprite({
       text: rating.text,
-      fontSize: 32,
+      fontSize: 40,
       color: '#ffffff',
       shadowColor: 'rgba(0,0,0,0.8)',
       shadowBlur: 4
     })
-    this.ratingTextSprite.position.set(0, -0.3, 0)
+    this.ratingTextSprite.position.set(0, -0.5, 0)
     this.ratingTextSprite.material.opacity = 0 // アニメーション用に初期化
     this.uiGroup.add(this.ratingTextSprite)
 
     // シェアボタン
     this.shareButton = new Button3D({
       text: 'Xでシェア',
-      width: 2.5,
-      height: 0.6,
-      fontSize: 28,
+      width: 2.8,
+      height: 0.7,
+      fontSize: 36,
       backgroundColor: 0x000000,
       hoverColor: 0x333333,
       activeColor: 0x111111,
@@ -351,21 +351,21 @@ export class ResultScene extends BaseScene {
         this.shareToTwitter()
       }
     })
-    this.shareButton.position.set(0, -1.3, 0)
+    this.shareButton.position.set(0, -1.5, 0)
     this.uiGroup.add(this.shareButton)
 
     // タイトルに戻るボタン
     this.backButton = new Button3D({
       text: 'タイトルに戻る',
-      width: 3,
-      height: 0.7,
-      fontSize: 32,
+      width: 3.2,
+      height: 0.8,
+      fontSize: 40,
       onClick: () => {
         this.game.audioManager.playClick()
         this.game.sceneManager.switchTo('intro')
       }
     })
-    this.backButton.position.set(0, -2.3, 0)
+    this.backButton.position.set(0, -2.5, 0)
     this.uiGroup.add(this.backButton)
   }
 
@@ -539,7 +539,7 @@ export class ResultScene extends BaseScene {
       // 新しいスコアスプライトを作成
       this.scoreSprite = createTextSprite({
         text: this.displayedScore.toString(),
-        fontSize: 120,
+        fontSize: 144,
         color: '#FFD700',
         glowColor: '#FFD700',
         glowBlur: 30,
@@ -561,9 +561,9 @@ export class ResultScene extends BaseScene {
    * レイアウト変更時の調整
    */
   protected adjustLayout(layout: LayoutInfo): void {
-    // UIグループのスケールを調整
+    // UIグループのスケールを調整（新しいデフォルト0.8を使用）
     if (this.uiGroup) {
-      const scale = calculateLayoutScale(layout, 0.6)
+      const scale = calculateLayoutScale(layout)
       this.uiGroup.scale.setScalar(scale)
     }
 

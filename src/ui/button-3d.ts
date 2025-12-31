@@ -142,10 +142,10 @@ export class Button3D extends THREE.Group {
 
     const {
       text,
-      width = 2.5,
-      height = 0.6,
+      width = 2.9,
+      height = 0.7,
       depth = 0.15,
-      fontSize = 32,
+      fontSize = 40,
       textColor = '#8B0000',
       backgroundColor = 0xffd700,
       hoverColor = 0xffea00,
