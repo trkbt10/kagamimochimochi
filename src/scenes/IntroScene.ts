@@ -8,6 +8,7 @@ import { createTextSprite } from '../ui/text-sprite'
 import { Button3D } from '../ui/button-3d'
 import { Slider3D } from '../ui/slider-3d'
 import { createPanel3D } from '../ui/panel-3d'
+import { createMochiGeometry } from './game/mochi-handler'
 
 export class IntroScene extends BaseScene {
   private particles: THREE.Points | null = null
@@ -180,7 +181,7 @@ export class IntroScene extends BaseScene {
     this.kagamimochi.add(dai)
 
     // Bottom mochi（下が広い鏡餅型）
-    const bottomMochiGeometry = this.createMochiGeometry(1.5, 0.75)
+    const bottomMochiGeometry = createMochiGeometry(1.5, 0.75)
     const mochiMaterial = new THREE.MeshStandardMaterial({
       color: 0xfff8e7,
       roughness: 0.9,
@@ -192,7 +193,7 @@ export class IntroScene extends BaseScene {
     this.kagamimochi.add(bottomMochi)
 
     // Top mochi（下が広い鏡餅型）
-    const topMochiGeometry = this.createMochiGeometry(1.1, 0.55)
+    const topMochiGeometry = createMochiGeometry(1.1, 0.55)
     const topMochi = new THREE.Mesh(topMochiGeometry, mochiMaterial)
     topMochi.position.y = -0.2
     topMochi.castShadow = true
@@ -235,26 +236,6 @@ export class IntroScene extends BaseScene {
     floor.position.y = -2
     floor.receiveShadow = true
     this.scene.add(floor)
-  }
-
-  /**
-   * お餅らしい形状を作成（下が広く上が丸い鏡餅型）
-   */
-  private createMochiGeometry(radius: number, height: number): THREE.BufferGeometry {
-    const points: THREE.Vector2[] = []
-    const segments = 16
-
-    for (let i = 0; i <= segments; i++) {
-      const t = i / segments
-      const topRadius = radius * 0.65
-      const ease = t * t * (3 - 2 * t)
-      const r = radius - (radius - topRadius) * ease
-      const y = -height / 2 + height * t
-      points.push(new THREE.Vector2(r, y))
-    }
-    points.push(new THREE.Vector2(0, height / 2))
-
-    return new THREE.LatheGeometry(points, 32)
   }
 
   private buildUI3D() {

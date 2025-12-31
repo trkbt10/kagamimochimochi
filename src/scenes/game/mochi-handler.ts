@@ -13,17 +13,58 @@ type MochiHandler = {
   createPhysicsShape: () => CANNON.Shape
 }
 
-const getMochiProfile = (radius: number, height: number, segments: number = 8): MochiProfile => {
+/**
+ * のし餅風のプロファイルを生成
+ * - 底面: 平ら（中心から開始）
+ * - 側面: ほぼ垂直（わずかに外側に膨らむ）
+ * - 上部: 緩やかなドーム形状
+ */
+const getMochiProfile = (radius: number, height: number, segments: number = 12): MochiProfile => {
   const points: MochiProfile = []
-  const topRadius = radius * 0.65
 
-  for (let i = 0; i <= segments; i++) {
-    const t = i / segments
-    const ease = t * t * (3 - 2 * t) // smoothstep
-    const r = radius - (radius - topRadius) * ease
-    const y = -height / 2 + height * t
+  const bottomY = -height / 2
+  const topY = height / 2
+  const sideHeight = height * 0.6 // 側面の高さ（全体の60%）
+  const domeHeight = height * 0.4 // ドーム部分の高さ（全体の40%）
+  const sideTopY = bottomY + sideHeight // 側面の終わり（ドームの始まり）
+  const cornerRadius = height * 0.1 // 底部の角丸め
+
+  // 1. 底部中心
+  points.push({ r: 0, y: bottomY })
+
+  // 2. 底面エッジ（角を若干丸める）
+  const bottomEdgeSegments = 2
+  for (let i = 0; i <= bottomEdgeSegments; i++) {
+    const t = i / bottomEdgeSegments
+    const angle = (Math.PI / 2) * (1 - t)
+    const r = radius - cornerRadius + cornerRadius * Math.cos(angle)
+    const y = bottomY + cornerRadius * (1 - Math.sin(angle))
     points.push({ r, y })
   }
+
+  // 3. 側面（わずかに外側に膨らむ樽形状）
+  const sideSegments = 3
+  const sideBulge = 1.02 // 膨らみ係数
+  for (let i = 1; i <= sideSegments; i++) {
+    const t = i / sideSegments
+    const sideY = bottomY + cornerRadius + (sideTopY - bottomY - cornerRadius) * t
+    const bulgeFactor = 1 + (sideBulge - 1) * Math.sin(t * Math.PI)
+    const r = Math.min(radius * bulgeFactor, radius * sideBulge)
+    points.push({ r, y: sideY })
+  }
+
+  // 4. 上部ドーム（緩やかな丸み）
+  const domeSegments = segments - bottomEdgeSegments - sideSegments - 2
+  for (let i = 1; i <= domeSegments; i++) {
+    const t = i / domeSegments
+    const easedT = 1 - Math.pow(1 - t, 2) // イーズアウト
+    const domeY = sideTopY + domeHeight * easedT
+    const domeRadius = radius * Math.sqrt(1 - easedT * easedT * 0.85)
+    points.push({ r: Math.max(domeRadius, 0), y: domeY })
+  }
+
+  // 5. 頂点
+  points.push({ r: 0, y: topY })
 
   return points
 }
@@ -31,57 +72,22 @@ const getMochiProfile = (radius: number, height: number, segments: number = 8): 
 const createMochiGeometry = (radius: number, height: number): THREE.BufferGeometry => {
   const profile = getMochiProfile(radius, height, 16)
   const points = profile.map(p => new THREE.Vector2(p.r, p.y))
-  points.push(new THREE.Vector2(0, height / 2))
+  // プロファイル自体が底面中心から頂点まで含むため、追加の点は不要
   return new THREE.LatheGeometry(points, 32)
 }
 
-const createMochiPhysicsShape = (radius: number, height: number): CANNON.ConvexPolyhedron => {
-  const profile = getMochiProfile(radius, height, 6)
-  const radialSegments = 12
+/**
+ * 物理形状用のシンプルな円柱形状を生成
+ * 視覚形状に近い安定した衝突判定を提供
+ */
+const createMochiPhysicsShape = (radius: number, height: number): CANNON.Cylinder => {
+  // Cannon.jsのCylinderは上下の半径を指定可能
+  // 上部を少し小さくして餅らしい形状に
+  const topRadius = radius * 0.85
+  const bottomRadius = radius
+  const numSegments = 12
 
-  const vertices: CANNON.Vec3[] = []
-  const faces: number[][] = []
-
-  for (let i = 0; i < profile.length; i++) {
-    const { r, y } = profile[i]
-    for (let j = 0; j < radialSegments; j++) {
-      const angle = (j / radialSegments) * Math.PI * 2
-      vertices.push(new CANNON.Vec3(r * Math.cos(angle), y, r * Math.sin(angle)))
-    }
-  }
-
-  const topCenterIndex = vertices.length
-  vertices.push(new CANNON.Vec3(0, height / 2, 0))
-
-  const bottomCenterIndex = vertices.length
-  vertices.push(new CANNON.Vec3(0, -height / 2, 0))
-
-  for (let i = 0; i < profile.length - 1; i++) {
-    for (let j = 0; j < radialSegments; j++) {
-      const curr = i * radialSegments + j
-      const next = i * radialSegments + ((j + 1) % radialSegments)
-      const currUp = (i + 1) * radialSegments + j
-      const nextUp = (i + 1) * radialSegments + ((j + 1) % radialSegments)
-
-      faces.push([curr, next, nextUp])
-      faces.push([curr, nextUp, currUp])
-    }
-  }
-
-  const topRing = (profile.length - 1) * radialSegments
-  for (let j = 0; j < radialSegments; j++) {
-    const curr = topRing + j
-    const next = topRing + ((j + 1) % radialSegments)
-    faces.push([curr, topCenterIndex, next])
-  }
-
-  for (let j = 0; j < radialSegments; j++) {
-    const curr = j
-    const next = (j + 1) % radialSegments
-    faces.push([next, bottomCenterIndex, curr])
-  }
-
-  return new CANNON.ConvexPolyhedron({ vertices, faces })
+  return new CANNON.Cylinder(topRadius, bottomRadius, height, numSegments)
 }
 
 const createMochiMaterial = (color: number, opacity?: number): THREE.MeshStandardMaterial =>
@@ -140,3 +146,5 @@ export const getNextMochiType = (current: MochiType): MochiType | null => {
   }
   return sequence[current]
 }
+
+export { createMochiGeometry }

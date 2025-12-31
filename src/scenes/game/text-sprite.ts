@@ -20,18 +20,28 @@ const DEFAULT_OPTIONS: Required<TextSpriteOptions> = {
   canvasHeight: 128
 }
 
+/**
+ * デバイスピクセル比を取得（最大2に制限）
+ */
+const getDevicePixelRatio = (): number => Math.min(window.devicePixelRatio || 1, 2)
+
 const createTextCanvas = (
   text: string,
   options: Required<TextSpriteOptions>
-): HTMLCanvasElement => {
+): { canvas: HTMLCanvasElement; dpr: number } => {
+  const dpr = getDevicePixelRatio()
   const canvas = document.createElement('canvas')
   const context = canvas.getContext('2d')!
 
-  canvas.width = options.canvasWidth
-  canvas.height = options.canvasHeight
+  // 高解像度Canvas
+  canvas.width = options.canvasWidth * dpr
+  canvas.height = options.canvasHeight * dpr
+
+  // スケーリングして論理サイズで描画
+  context.scale(dpr, dpr)
 
   context.fillStyle = 'rgba(0, 0, 0, 0)'
-  context.fillRect(0, 0, canvas.width, canvas.height)
+  context.fillRect(0, 0, options.canvasWidth, options.canvasHeight)
 
   context.font = `bold ${options.fontSize}px ${options.fontFamily}`
   context.fillStyle = options.color
@@ -39,14 +49,14 @@ const createTextCanvas = (
   context.textBaseline = 'middle'
   context.strokeStyle = options.strokeColor
   context.lineWidth = options.strokeWidth
-  context.strokeText(text, canvas.width / 2, canvas.height / 2)
-  context.fillText(text, canvas.width / 2, canvas.height / 2)
+  context.strokeText(text, options.canvasWidth / 2, options.canvasHeight / 2)
+  context.fillText(text, options.canvasWidth / 2, options.canvasHeight / 2)
 
-  return canvas
+  return { canvas, dpr }
 }
 
 export const createTextSprite = (text: string, size: number): THREE.Sprite => {
-  const canvas = createTextCanvas(text, DEFAULT_OPTIONS)
+  const { canvas, dpr } = createTextCanvas(text, DEFAULT_OPTIONS)
 
   const texture = new THREE.CanvasTexture(canvas)
   const material = new THREE.SpriteMaterial({ map: texture, transparent: true })
@@ -65,14 +75,21 @@ const UI_FONT_FAMILY = '"Hiragino Sans", "Hiragino Kaku Gothic ProN", sans-serif
 const UI_CANVAS_SIZE = { width: 1024, height: 256 }
 const UI_STROKE_WIDTH = 6
 
-const createUITextCanvas = (text: string, options: UITextSpriteOptions): HTMLCanvasElement => {
+const createUITextCanvas = (
+  text: string,
+  options: UITextSpriteOptions
+): { canvas: HTMLCanvasElement; dpr: number } => {
+  const dpr = getDevicePixelRatio()
   const canvas = document.createElement('canvas')
   const context = canvas.getContext('2d')!
 
-  canvas.width = UI_CANVAS_SIZE.width
-  canvas.height = UI_CANVAS_SIZE.height
+  // 高解像度Canvas
+  canvas.width = UI_CANVAS_SIZE.width * dpr
+  canvas.height = UI_CANVAS_SIZE.height * dpr
 
-  context.clearRect(0, 0, canvas.width, canvas.height)
+  // スケーリングして論理サイズで描画
+  context.scale(dpr, dpr)
+  context.clearRect(0, 0, UI_CANVAS_SIZE.width, UI_CANVAS_SIZE.height)
 
   context.font = `bold ${options.fontSize}px ${UI_FONT_FAMILY}`
   context.fillStyle = options.color
@@ -81,10 +98,10 @@ const createUITextCanvas = (text: string, options: UITextSpriteOptions): HTMLCan
 
   context.strokeStyle = '#000000'
   context.lineWidth = UI_STROKE_WIDTH
-  context.strokeText(text, canvas.width / 2, canvas.height / 2)
-  context.fillText(text, canvas.width / 2, canvas.height / 2)
+  context.strokeText(text, UI_CANVAS_SIZE.width / 2, UI_CANVAS_SIZE.height / 2)
+  context.fillText(text, UI_CANVAS_SIZE.width / 2, UI_CANVAS_SIZE.height / 2)
 
-  return canvas
+  return { canvas, dpr }
 }
 
 export const createUITextSprite = (
@@ -92,7 +109,7 @@ export const createUITextSprite = (
   fontSize: number,
   color: string
 ): THREE.Sprite => {
-  const canvas = createUITextCanvas(text, { fontSize, color })
+  const { canvas } = createUITextCanvas(text, { fontSize, color })
 
   const texture = new THREE.CanvasTexture(canvas)
   texture.needsUpdate = true
@@ -118,7 +135,7 @@ export const updateUITextSprite = (
   const material = sprite.material as THREE.SpriteMaterial
   const oldTexture = material.map
 
-  const canvas = createUITextCanvas(text, { fontSize, color })
+  const { canvas } = createUITextCanvas(text, { fontSize, color })
   const texture = new THREE.CanvasTexture(canvas)
   texture.needsUpdate = true
   material.map = texture

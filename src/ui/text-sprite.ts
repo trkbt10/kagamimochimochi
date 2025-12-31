@@ -203,9 +203,16 @@ function drawTextLines(
 }
 
 /**
+ * デバイスピクセル比を取得（最大2に制限）
+ */
+function getDevicePixelRatio(): number {
+  return Math.min(window.devicePixelRatio || 1, 2)
+}
+
+/**
  * スプライトを作成する
  */
-function createSprite(canvas: HTMLCanvasElement): THREE.Sprite {
+function createSprite(canvas: HTMLCanvasElement, dpr: number = 1): THREE.Sprite {
   const texture = new THREE.CanvasTexture(canvas)
   texture.minFilter = THREE.LinearFilter
   texture.magFilter = THREE.LinearFilter
@@ -218,7 +225,8 @@ function createSprite(canvas: HTMLCanvasElement): THREE.Sprite {
 
   const sprite = new THREE.Sprite(material)
   const scale = 0.01
-  sprite.scale.set(canvas.width * scale, canvas.height * scale, 1)
+  // dprを考慮して論理サイズでスケール設定
+  sprite.scale.set((canvas.width / dpr) * scale, (canvas.height / dpr) * scale, 1)
 
   return sprite
 }
@@ -244,9 +252,11 @@ export function createTextSprite(options: TextSpriteOptions): THREE.Sprite {
     glowBlur = 0
   } = options
 
+  const dpr = getDevicePixelRatio()
   const canvas = document.createElement('canvas')
   const ctx = canvas.getContext('2d')!
 
+  // 論理サイズでフォントを設定してテキスト計測
   ctx.font = `bold ${fontSize}px ${fontFamily}`
 
   const metrics = calculateTextMetrics(ctx, text, fontSize, maxWidth)
@@ -258,8 +268,12 @@ export function createTextSprite(options: TextSpriteOptions): THREE.Sprite {
     glowBlur
   )
 
-  canvas.width = dimensions.width
-  canvas.height = dimensions.height
+  // Canvasを高解像度化
+  canvas.width = dimensions.width * dpr
+  canvas.height = dimensions.height * dpr
+
+  // 描画コンテキストをスケール
+  ctx.scale(dpr, dpr)
 
   drawBackground(ctx, backgroundColor, borderWidth, glowBlur, dimensions.width, dimensions.height)
   drawBorder(ctx, borderColor, borderWidth, glowBlur, dimensions.width, dimensions.height)
@@ -275,5 +289,5 @@ export function createTextSprite(options: TextSpriteOptions): THREE.Sprite {
 
   drawTextLines(ctx, metrics.lines, color, xOffset, startY, metrics.lineHeight)
 
-  return createSprite(canvas)
+  return createSprite(canvas, dpr)
 }

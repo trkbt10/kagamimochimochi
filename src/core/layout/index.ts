@@ -23,4 +23,5 @@ export {
   positionInSafeArea,
   adjustScaleForLayout,
   calculateLayoutScale,
+  getMobileFontScale,
 } from './DecorationHelper'

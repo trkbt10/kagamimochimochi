@@ -147,12 +147,30 @@ export function adjustScaleForLayout(
  */
 export function calculateLayoutScale(
   layout: LayoutInfo,
-  minScale: number = 0.6
+  minScale: number = 0.8
 ): number {
   if (layout.mode === 'landscape') {
     return 1
   }
 
-  // 縦画面ではアスペクト比に応じてスケールを調整
-  return Math.max(minScale, layout.screenAspect)
+  // 縦画面ではより緩やかなスケーリング
+  // screenAspect 0.5 -> 0.8, 0.7 -> 0.88, 1.0 -> 1.0
+  const adjustedScale = 0.6 + layout.screenAspect * 0.4
+  return Math.max(minScale, adjustedScale)
+}
+
+/**
+ * モバイル向けフォントサイズスケールを計算
+ * 縦画面時にフォントを大きくして可読性を向上
+ *
+ * @param layout 現在のレイアウト情報
+ * @returns フォントサイズの倍率（1.0 - 1.3）
+ */
+export function getMobileFontScale(layout: LayoutInfo): number {
+  if (layout.mode === 'landscape') {
+    return 1
+  }
+
+  // 縦画面では1.1-1.3倍に拡大
+  return 1.1 + (1 - layout.screenAspect) * 0.3
 }
