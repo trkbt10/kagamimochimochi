@@ -4,7 +4,7 @@ import { gsap } from 'gsap'
 import { BaseScene } from './BaseScene'
 import type { Game } from '../core/Game'
 
-type GamePhase = 'aiming' | 'power' | 'flying' | 'landed' | 'complete'
+type GamePhase = 'direction' | 'elevation' | 'power' | 'flying' | 'landed' | 'complete'
 type MochiType = 'base' | 'top' | 'mikan'
 
 interface LaunchedObject {
@@ -22,12 +22,15 @@ export class GameScene extends BaseScene {
   private currentObject: LaunchedObject | null = null
   private currentType: MochiType = 'base'
 
-  private phase: GamePhase = 'aiming'
-  private angleH = 0 // Horizontal angle
-  private angleV = 45 // Vertical angle (degrees)
+  private phase: GamePhase = 'direction'
+  private angleH = 0 // Horizontal angle (-60 to 60)
+  private angleV = 45 // Vertical angle (15 to 75)
   private power = 50
-  private powerDirection = 1
-  private powerSpeed = 100 // Speed of power meter
+
+  // Golf-style gauge values (0-100, oscillating)
+  private gaugeValue = 50
+  private gaugeDirection = 1
+  private gaugeSpeed = 120 // Speed of gauge oscillation
 
   private aimArrow: THREE.Group | null = null
   private launchPosition = new THREE.Vector3(0, 0, 10)
@@ -36,14 +39,14 @@ export class GameScene extends BaseScene {
 
   // UI elements
   private phaseIndicator: HTMLElement | null = null
-  private powerMeter: HTMLElement | null = null
-  private powerMeterFill: HTMLElement | null = null
-  private angleIndicator: HTMLElement | null = null
+  private directionGauge: HTMLElement | null = null
+  private directionGaugeFill: HTMLElement | null = null
+  private elevationGauge: HTMLElement | null = null
+  private elevationGaugeFill: HTMLElement | null = null
+  private powerGauge: HTMLElement | null = null
+  private powerGaugeFill: HTMLElement | null = null
   private instruction: HTMLElement | null = null
-
-  private isTouching = false
-  private touchStartX = 0
-  private touchStartY = 0
+  private gaugeLabel: HTMLElement | null = null
 
   constructor(game: Game) {
     super(game)
@@ -78,24 +81,22 @@ export class GameScene extends BaseScene {
       obj.mesh.quaternion.copy(obj.body.quaternion as unknown as THREE.Quaternion)
     }
 
-    // Update aim arrow
-    if (this.aimArrow && this.phase === 'aiming') {
+    // Update aim arrow during gauge phases
+    if (this.aimArrow && (this.phase === 'direction' || this.phase === 'elevation' || this.phase === 'power')) {
       this.updateAimArrow()
     }
 
-    // Update power meter
-    if (this.phase === 'power') {
-      this.power += this.powerDirection * this.powerSpeed * delta
-      if (this.power >= 100) {
-        this.power = 100
-        this.powerDirection = -1
-      } else if (this.power <= 0) {
-        this.power = 0
-        this.powerDirection = 1
+    // Golf-style gauge oscillation
+    if (this.phase === 'direction' || this.phase === 'elevation' || this.phase === 'power') {
+      this.gaugeValue += this.gaugeDirection * this.gaugeSpeed * delta
+      if (this.gaugeValue >= 100) {
+        this.gaugeValue = 100
+        this.gaugeDirection = -1
+      } else if (this.gaugeValue <= 0) {
+        this.gaugeValue = 0
+        this.gaugeDirection = 1
       }
-      if (this.powerMeterFill) {
-        this.powerMeterFill.style.width = `${this.power}%`
-      }
+      this.updateCurrentGauge()
     }
 
     // Check if object has landed
@@ -109,15 +110,30 @@ export class GameScene extends BaseScene {
     }
   }
 
+  private updateCurrentGauge() {
+    if (this.phase === 'direction' && this.directionGaugeFill) {
+      this.directionGaugeFill.style.left = `${this.gaugeValue}%`
+      // Preview the angle in real-time
+      this.angleH = (this.gaugeValue - 50) * 1.2 // -60 to 60
+    } else if (this.phase === 'elevation' && this.elevationGaugeFill) {
+      this.elevationGaugeFill.style.bottom = `${this.gaugeValue}%`
+      // Preview the angle in real-time
+      this.angleV = 15 + this.gaugeValue * 0.6 // 15 to 75
+    } else if (this.phase === 'power' && this.powerGaugeFill) {
+      this.powerGaugeFill.style.height = `${this.gaugeValue}%`
+    }
+  }
+
   private resetState() {
     this.launchedObjects = []
     this.currentObject = null
     this.currentType = 'base'
-    this.phase = 'aiming'
+    this.phase = 'direction'
     this.angleH = 0
     this.angleV = 45
     this.power = 50
-    this.powerDirection = 1
+    this.gaugeValue = 50
+    this.gaugeDirection = 1
   }
 
   private setupPhysics() {
@@ -250,23 +266,53 @@ export class GameScene extends BaseScene {
         <div class="phase-indicator">
           <span id="phaseText">${this.getPhaseText()}</span>
         </div>
-        <div class="angle-indicator">
-          <span id="angleText">角度: H ${this.angleH}° / V ${this.angleV}°</span>
+
+        <!-- Golf-style gauges -->
+        <div class="golf-gauge-container">
+          <!-- Direction gauge (horizontal) -->
+          <div class="golf-gauge direction-gauge" id="directionGauge">
+            <div class="gauge-label">◀ 方向 ▶</div>
+            <div class="gauge-track horizontal">
+              <div class="gauge-center-mark"></div>
+              <div class="gauge-fill-indicator" id="directionGaugeFill"></div>
+            </div>
+          </div>
+
+          <!-- Elevation gauge (vertical) -->
+          <div class="golf-gauge elevation-gauge" id="elevationGauge" style="display: none;">
+            <div class="gauge-label">角度 ▲</div>
+            <div class="gauge-track vertical">
+              <div class="gauge-center-mark"></div>
+              <div class="gauge-fill-indicator" id="elevationGaugeFill"></div>
+            </div>
+          </div>
+
+          <!-- Power gauge (vertical) -->
+          <div class="golf-gauge power-gauge" id="powerGauge" style="display: none;">
+            <div class="gauge-label">パワー</div>
+            <div class="gauge-track vertical power">
+              <div class="gauge-fill-bar" id="powerGaugeFill"></div>
+            </div>
+          </div>
         </div>
-        <div class="power-meter" style="display: none;">
-          <div class="power-meter-fill"></div>
-        </div>
+
+        <div class="gauge-value-display" id="gaugeLabel"></div>
+
         <div class="instruction">
-          <span id="instructionText">スワイプで角度調整 / タップで確定</span>
+          <span id="instructionText">タップで方向を決定！</span>
         </div>
       </div>
     `)
 
     this.phaseIndicator = this.ui!.querySelector('#phaseText')
-    this.powerMeter = this.ui!.querySelector('.power-meter')
-    this.powerMeterFill = this.ui!.querySelector('.power-meter-fill')
-    this.angleIndicator = this.ui!.querySelector('#angleText')
+    this.directionGauge = this.ui!.querySelector('#directionGauge')
+    this.directionGaugeFill = this.ui!.querySelector('#directionGaugeFill')
+    this.elevationGauge = this.ui!.querySelector('#elevationGauge')
+    this.elevationGaugeFill = this.ui!.querySelector('#elevationGaugeFill')
+    this.powerGauge = this.ui!.querySelector('#powerGauge')
+    this.powerGaugeFill = this.ui!.querySelector('#powerGaugeFill')
     this.instruction = this.ui!.querySelector('#instructionText')
+    this.gaugeLabel = this.ui!.querySelector('#gaugeLabel')
   }
 
   private getPhaseText(): string {
@@ -275,175 +321,112 @@ export class GameScene extends BaseScene {
   }
 
   private setupEventListeners() {
-    // Touch events
-    window.addEventListener('touchstart', this.onTouchStart)
-    window.addEventListener('touchmove', this.onTouchMove)
-    window.addEventListener('touchend', this.onTouchEnd)
-
-    // Mouse events for desktop
-    window.addEventListener('mousedown', this.onMouseDown)
-    window.addEventListener('mousemove', this.onMouseMove)
-    window.addEventListener('mouseup', this.onMouseUp)
+    // Touch/Click to confirm gauge
+    window.addEventListener('touchend', this.onConfirmGauge)
+    window.addEventListener('click', this.onConfirmGauge)
 
     // Keyboard for desktop
     window.addEventListener('keydown', this.onKeyDown)
   }
 
   private removeEventListeners() {
-    window.removeEventListener('touchstart', this.onTouchStart)
-    window.removeEventListener('touchmove', this.onTouchMove)
-    window.removeEventListener('touchend', this.onTouchEnd)
-    window.removeEventListener('mousedown', this.onMouseDown)
-    window.removeEventListener('mousemove', this.onMouseMove)
-    window.removeEventListener('mouseup', this.onMouseUp)
+    window.removeEventListener('touchend', this.onConfirmGauge)
+    window.removeEventListener('click', this.onConfirmGauge)
     window.removeEventListener('keydown', this.onKeyDown)
   }
 
-  private onTouchStart = (e: TouchEvent) => {
-    if (this.phase !== 'aiming') return
-    this.isTouching = true
-    this.touchStartX = e.touches[0].clientX
-    this.touchStartY = e.touches[0].clientY
-  }
-
-  private onTouchMove = (e: TouchEvent) => {
-    if (!this.isTouching || this.phase !== 'aiming') return
+  private onConfirmGauge = (e: Event) => {
     e.preventDefault()
 
-    const deltaX = e.touches[0].clientX - this.touchStartX
-    const deltaY = e.touches[0].clientY - this.touchStartY
-
-    // Adjust angles based on swipe
-    this.angleH = Math.max(-60, Math.min(60, this.angleH + deltaX * 0.3))
-    this.angleV = Math.max(15, Math.min(75, this.angleV - deltaY * 0.3))
-
-    this.touchStartX = e.touches[0].clientX
-    this.touchStartY = e.touches[0].clientY
-
-    this.updateAngleUI()
-  }
-
-  private onTouchEnd = () => {
-    if (this.isTouching && this.phase === 'aiming') {
-      this.startPowerPhase()
+    if (this.phase === 'direction') {
+      this.confirmDirection()
+    } else if (this.phase === 'elevation') {
+      this.confirmElevation()
+    } else if (this.phase === 'power') {
+      this.confirmPowerAndLaunch()
     }
-    this.isTouching = false
-  }
-
-  private onMouseDown = (e: MouseEvent) => {
-    if (this.phase !== 'aiming') return
-    this.isTouching = true
-    this.touchStartX = e.clientX
-    this.touchStartY = e.clientY
-  }
-
-  private onMouseMove = (e: MouseEvent) => {
-    if (!this.isTouching || this.phase !== 'aiming') return
-
-    const deltaX = e.clientX - this.touchStartX
-    const deltaY = e.clientY - this.touchStartY
-
-    this.angleH = Math.max(-60, Math.min(60, this.angleH + deltaX * 0.3))
-    this.angleV = Math.max(15, Math.min(75, this.angleV - deltaY * 0.3))
-
-    this.touchStartX = e.clientX
-    this.touchStartY = e.clientY
-
-    this.updateAngleUI()
-  }
-
-  private onMouseUp = () => {
-    if (this.isTouching && this.phase === 'aiming') {
-      this.startPowerPhase()
-    }
-    this.isTouching = false
   }
 
   private onKeyDown = (e: KeyboardEvent) => {
-    if (this.phase === 'aiming') {
-      switch (e.key) {
-        case 'ArrowLeft':
-          this.angleH = Math.max(-60, this.angleH - 5)
-          this.updateAngleUI()
-          break
-        case 'ArrowRight':
-          this.angleH = Math.min(60, this.angleH + 5)
-          this.updateAngleUI()
-          break
-        case 'ArrowUp':
-          this.angleV = Math.min(75, this.angleV + 5)
-          this.updateAngleUI()
-          break
-        case 'ArrowDown':
-          this.angleV = Math.max(15, this.angleV - 5)
-          this.updateAngleUI()
-          break
-        case ' ':
-        case 'Enter':
-          this.startPowerPhase()
-          break
-      }
-    } else if (this.phase === 'power') {
-      if (e.key === ' ' || e.key === 'Enter') {
-        this.launch()
-      }
-    }
-  }
-
-  private updateAngleUI() {
-    if (this.angleIndicator) {
-      this.angleIndicator.textContent = `角度: H ${Math.round(this.angleH)}° / V ${Math.round(this.angleV)}°`
-    }
-  }
-
-  private startPowerPhase() {
-    this.phase = 'power'
-    this.power = 0
-    this.powerDirection = 1
-
-    if (this.powerMeter) {
-      this.powerMeter.style.display = 'block'
-    }
-    if (this.instruction) {
-      this.instruction.textContent = 'タップでパワー決定！'
-    }
-    if (this.aimArrow) {
-      this.aimArrow.visible = false
-    }
-
-    // Setup click/touch to launch
-    const launchHandler = () => {
-      if (this.phase === 'power') {
-        this.launch()
-        window.removeEventListener('click', launchHandler)
-        window.removeEventListener('touchend', touchLaunchHandler)
-      }
-    }
-    const touchLaunchHandler = (e: TouchEvent) => {
+    if (e.key === ' ' || e.key === 'Enter') {
       e.preventDefault()
-      if (this.phase === 'power') {
-        this.launch()
-        window.removeEventListener('click', launchHandler)
-        window.removeEventListener('touchend', touchLaunchHandler)
+      if (this.phase === 'direction') {
+        this.confirmDirection()
+      } else if (this.phase === 'elevation') {
+        this.confirmElevation()
+      } else if (this.phase === 'power') {
+        this.confirmPowerAndLaunch()
       }
     }
+  }
 
-    // Small delay to prevent immediate launch
-    setTimeout(() => {
-      window.addEventListener('click', launchHandler)
-      window.addEventListener('touchend', touchLaunchHandler)
-    }, 100)
+  private confirmDirection() {
+    // Lock in the horizontal angle
+    this.angleH = (this.gaugeValue - 50) * 1.2 // -60 to 60
+    this.game.audioManager.playLand() // Confirmation sound
+
+    // Hide direction gauge, show elevation gauge
+    if (this.directionGauge) this.directionGauge.style.display = 'none'
+    if (this.elevationGauge) this.elevationGauge.style.display = 'flex'
+
+    // Reset gauge for next phase
+    this.gaugeValue = 50
+    this.gaugeDirection = 1
+    this.phase = 'elevation'
+
+    if (this.instruction) {
+      this.instruction.textContent = 'タップで角度を決定！'
+    }
+    if (this.gaugeLabel) {
+      this.gaugeLabel.textContent = `方向: ${Math.round(this.angleH)}°`
+    }
+  }
+
+  private confirmElevation() {
+    // Lock in the vertical angle
+    this.angleV = 15 + this.gaugeValue * 0.6 // 15 to 75
+    this.game.audioManager.playLand() // Confirmation sound
+
+    // Hide elevation gauge, show power gauge
+    if (this.elevationGauge) this.elevationGauge.style.display = 'none'
+    if (this.powerGauge) this.powerGauge.style.display = 'flex'
+
+    // Reset gauge for next phase
+    this.gaugeValue = 0
+    this.gaugeDirection = 1
+    this.phase = 'power'
+
+    if (this.instruction) {
+      this.instruction.textContent = 'タップでパワーを決定！'
+    }
+    if (this.gaugeLabel) {
+      this.gaugeLabel.textContent = `方向: ${Math.round(this.angleH)}° / 角度: ${Math.round(this.angleV)}°`
+    }
+  }
+
+  private confirmPowerAndLaunch() {
+    // Lock in the power
+    this.power = this.gaugeValue
+    this.launch()
   }
 
   private launch() {
     this.phase = 'flying'
     this.game.audioManager.playLaunch()
 
-    if (this.powerMeter) {
-      this.powerMeter.style.display = 'none'
-    }
+    // Hide all gauges
+    if (this.directionGauge) this.directionGauge.style.display = 'none'
+    if (this.elevationGauge) this.elevationGauge.style.display = 'none'
+    if (this.powerGauge) this.powerGauge.style.display = 'none'
+
     if (this.instruction) {
       this.instruction.textContent = '飛んでいます...'
+    }
+    if (this.gaugeLabel) {
+      this.gaugeLabel.textContent = `パワー: ${Math.round(this.power)}%`
+    }
+    if (this.aimArrow) {
+      this.aimArrow.visible = false
     }
 
     // Create the object to launch
@@ -565,11 +548,18 @@ export class GameScene extends BaseScene {
       return
     }
 
-    // Reset for next launch
-    this.phase = 'aiming'
+    // Reset for next launch - start with direction phase
+    this.phase = 'direction'
     this.angleH = 0
     this.angleV = 45
     this.power = 50
+    this.gaugeValue = 50
+    this.gaugeDirection = 1
+
+    // Show direction gauge, hide others
+    if (this.directionGauge) this.directionGauge.style.display = 'flex'
+    if (this.elevationGauge) this.elevationGauge.style.display = 'none'
+    if (this.powerGauge) this.powerGauge.style.display = 'none'
 
     if (this.aimArrow) {
       this.aimArrow.visible = true
@@ -579,7 +569,10 @@ export class GameScene extends BaseScene {
       this.phaseIndicator.textContent = this.getPhaseText()
     }
     if (this.instruction) {
-      this.instruction.textContent = 'スワイプで角度調整 / タップで確定'
+      this.instruction.textContent = 'タップで方向を決定！'
+    }
+    if (this.gaugeLabel) {
+      this.gaugeLabel.textContent = ''
     }
 
     // Reset camera
@@ -589,8 +582,6 @@ export class GameScene extends BaseScene {
       z: 15,
       duration: 0.5
     })
-
-    this.updateAngleUI()
   }
 
   private calculateAndShowResult() {
