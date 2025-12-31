@@ -406,7 +406,7 @@ export class GameScene extends BaseScene {
     const hRad = degreesToRadians(this.launchParams.angleH)
     const vRad = degreesToRadians(this.launchParams.angleV)
 
-    this.aimArrow.rotation.y = -hRad
+    this.aimArrow.rotation.y = hRad
     this.aimArrow.rotation.x = -vRad
   }
 
