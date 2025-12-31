@@ -65,9 +65,10 @@ export class GameScene extends BaseScene {
   // Target marker (shows where dai is)
   private targetMarker: THREE.Mesh | null = null
 
-  // HTML UI elements (minimal - only text)
-  private phaseIndicator: HTMLElement | null = null
-  private instruction: HTMLElement | null = null
+  // 3D UI elements (text sprites)
+  private phaseSprite: THREE.Sprite | null = null
+  private instructionSprite: THREE.Sprite | null = null
+  private uiContainer: THREE.Group | null = null
 
   constructor(game: Game) {
     super(game)
@@ -113,6 +114,11 @@ export class GameScene extends BaseScene {
     // Update gauge position to follow camera (billboard style)
     if (this.gaugeContainer && this.gaugeContainer.visible) {
       this.updateGaugePosition()
+    }
+
+    // Update UI container position to follow camera
+    if (this.uiContainer) {
+      this.updateUIPosition()
     }
 
     // Golf-style gauge oscillation
@@ -168,6 +174,26 @@ export class GameScene extends BaseScene {
 
     // Make gauge face the camera (billboard)
     this.gaugeContainer.quaternion.copy(camera.quaternion)
+  }
+
+  private updateUIPosition() {
+    if (!this.uiContainer) return
+
+    const camera = this.game.camera
+
+    // Position UI in front of camera, at top of view
+    const distance = 6
+    const offsetY = 2
+
+    const forward = new THREE.Vector3(0, 0, -1)
+    forward.applyQuaternion(camera.quaternion)
+
+    this.uiContainer.position.copy(camera.position)
+    this.uiContainer.position.add(forward.multiplyScalar(distance))
+    this.uiContainer.position.y += offsetY
+
+    // Make UI face the camera
+    this.uiContainer.quaternion.copy(camera.quaternion)
   }
 
   private createTrajectoryLine() {
@@ -360,8 +386,8 @@ export class GameScene extends BaseScene {
 
     group.add(indicator)
 
-    // Label above the gauge
-    const labelSprite = this.createTextSprite('◀ 方向 ▶', 0.5)
+    // Label above the gauge - 左右のラベルを追加
+    const labelSprite = this.createTextSprite('左 ← 方向 → 右', 0.5)
     labelSprite.position.set(0, 0.8, 0)
     group.add(labelSprite)
 
@@ -675,14 +701,14 @@ export class GameScene extends BaseScene {
     const arrowBodyGeometry = new THREE.CylinderGeometry(0.1, 0.1, 2, 8)
     const arrowMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00 })
     const arrowBody = new THREE.Mesh(arrowBodyGeometry, arrowMaterial)
-    arrowBody.rotation.x = Math.PI / 2
-    arrowBody.position.z = 1
+    arrowBody.rotation.x = -Math.PI / 2  // 修正：-Z方向（ターゲット方向）を向くように
+    arrowBody.position.z = -1            // 修正：前方に配置
     this.aimArrow.add(arrowBody)
 
     const arrowHeadGeometry = new THREE.ConeGeometry(0.2, 0.5, 8)
     const arrowHead = new THREE.Mesh(arrowHeadGeometry, arrowMaterial)
-    arrowHead.rotation.x = Math.PI / 2
-    arrowHead.position.z = 2.25
+    arrowHead.rotation.x = -Math.PI / 2  // 修正：-Z方向を向くように
+    arrowHead.position.z = -2.25         // 修正：前方に配置
     this.aimArrow.add(arrowHead)
 
     this.aimArrow.position.copy(this.launchPosition)
@@ -700,19 +726,81 @@ export class GameScene extends BaseScene {
   }
 
   private buildUI() {
-    this.ui = this.createUI(`
-      <div class="game-ui active">
-        <div class="phase-indicator">
-          <span id="phaseText">${this.getPhaseText()}</span>
-        </div>
-        <div class="instruction">
-          <span id="instructionText">タップで方向を決定！</span>
-        </div>
-      </div>
-    `)
+    // 3D UI コンテナを作成（カメラに追従）
+    this.uiContainer = new THREE.Group()
+    this.scene.add(this.uiContainer)
 
-    this.phaseIndicator = this.ui!.querySelector('#phaseText')
-    this.instruction = this.ui!.querySelector('#instructionText')
+    // フェーズ表示スプライト
+    this.phaseSprite = this.createUITextSprite(this.getPhaseText(), 64, '#FFD700')
+    this.phaseSprite.position.set(0, 1.5, 0)
+    this.uiContainer.add(this.phaseSprite)
+
+    // 指示テキストスプライト
+    this.instructionSprite = this.createUITextSprite('タップで方向を決定！', 48, '#FFFFFF')
+    this.instructionSprite.position.set(0, 0.8, 0)
+    this.uiContainer.add(this.instructionSprite)
+  }
+
+  private createUITextSprite(text: string, fontSize: number, color: string): THREE.Sprite {
+    const canvas = document.createElement('canvas')
+    const context = canvas.getContext('2d')!
+    canvas.width = 1024
+    canvas.height = 256
+
+    context.clearRect(0, 0, canvas.width, canvas.height)
+
+    context.font = `bold ${fontSize}px "Hiragino Sans", "Hiragino Kaku Gothic ProN", sans-serif`
+    context.fillStyle = color
+    context.textAlign = 'center'
+    context.textBaseline = 'middle'
+
+    // 縁取り
+    context.strokeStyle = '#000000'
+    context.lineWidth = 6
+    context.strokeText(text, canvas.width / 2, canvas.height / 2)
+    context.fillText(text, canvas.width / 2, canvas.height / 2)
+
+    const texture = new THREE.CanvasTexture(canvas)
+    texture.needsUpdate = true
+    const material = new THREE.SpriteMaterial({
+      map: texture,
+      transparent: true,
+      depthTest: false
+    })
+    const sprite = new THREE.Sprite(material)
+    sprite.scale.set(4, 1, 1)
+
+    return sprite
+  }
+
+  private updateUITextSprite(sprite: THREE.Sprite, text: string, fontSize: number, color: string) {
+    const material = sprite.material as THREE.SpriteMaterial
+    const oldTexture = material.map
+
+    const canvas = document.createElement('canvas')
+    const context = canvas.getContext('2d')!
+    canvas.width = 1024
+    canvas.height = 256
+
+    context.clearRect(0, 0, canvas.width, canvas.height)
+
+    context.font = `bold ${fontSize}px "Hiragino Sans", "Hiragino Kaku Gothic ProN", sans-serif`
+    context.fillStyle = color
+    context.textAlign = 'center'
+    context.textBaseline = 'middle'
+
+    context.strokeStyle = '#000000'
+    context.lineWidth = 6
+    context.strokeText(text, canvas.width / 2, canvas.height / 2)
+    context.fillText(text, canvas.width / 2, canvas.height / 2)
+
+    const texture = new THREE.CanvasTexture(canvas)
+    texture.needsUpdate = true
+    material.map = texture
+
+    if (oldTexture) {
+      oldTexture.dispose()
+    }
   }
 
   private getPhaseText(): string {
@@ -769,8 +857,8 @@ export class GameScene extends BaseScene {
     this.gaugeDirection = 1
     this.phase = 'elevation'
 
-    if (this.instruction) {
-      this.instruction.textContent = 'タップで角度を決定！'
+    if (this.instructionSprite) {
+      this.updateUITextSprite(this.instructionSprite, 'タップで角度を決定！', 48, '#FFFFFF')
     }
   }
 
@@ -786,8 +874,8 @@ export class GameScene extends BaseScene {
     this.gaugeDirection = 1
     this.phase = 'power'
 
-    if (this.instruction) {
-      this.instruction.textContent = 'タップでパワーを決定！'
+    if (this.instructionSprite) {
+      this.updateUITextSprite(this.instructionSprite, 'タップでパワーを決定！', 48, '#FFFFFF')
     }
   }
 
@@ -806,8 +894,8 @@ export class GameScene extends BaseScene {
     if (this.aimArrow) this.aimArrow.visible = false
     if (this.trajectoryLine) this.trajectoryLine.visible = false
 
-    if (this.instruction) {
-      this.instruction.textContent = '飛んでいます...'
+    if (this.instructionSprite) {
+      this.updateUITextSprite(this.instructionSprite, '飛んでいます...', 48, '#FFFFFF')
     }
 
     // Create object
@@ -915,8 +1003,8 @@ export class GameScene extends BaseScene {
     this.phase = 'landed'
     this.game.audioManager.playLand()
 
-    if (this.instruction) {
-      this.instruction.textContent = '着地！'
+    if (this.instructionSprite) {
+      this.updateUITextSprite(this.instructionSprite, '着地！', 48, '#00FF00')
     }
 
     setTimeout(() => {
@@ -961,11 +1049,11 @@ export class GameScene extends BaseScene {
       this.aimArrow.visible = true
       this.aimArrow.rotation.set(0, 0, 0)
     }
-    if (this.phaseIndicator) {
-      this.phaseIndicator.textContent = this.getPhaseText()
+    if (this.phaseSprite) {
+      this.updateUITextSprite(this.phaseSprite, this.getPhaseText(), 64, '#FFD700')
     }
-    if (this.instruction) {
-      this.instruction.textContent = 'タップで方向を決定！'
+    if (this.instructionSprite) {
+      this.updateUITextSprite(this.instructionSprite, 'タップで方向を決定！', 48, '#FFFFFF')
     }
 
     // Reset camera to good viewing position (setupCamera()と同じ)
