@@ -438,12 +438,12 @@ export class GameScene extends BaseScene {
     this.uiContainer = new THREE.Group()
     this.scene.add(this.uiContainer)
 
-    this.phaseSprite = createUITextSprite(this.getPhaseText(), 64, '#FFD700')
-    this.phaseSprite.position.set(0, 1.5, 0)
+    this.phaseSprite = createUITextSprite(this.getPhaseText(), 80, '#FFD700')
+    this.phaseSprite.position.set(0, 1.6, 0)
     this.uiContainer.add(this.phaseSprite)
 
-    this.instructionSprite = createUITextSprite('タップで方向を決定！', 48, '#FFFFFF')
-    this.instructionSprite.position.set(0, 0.8, 0)
+    this.instructionSprite = createUITextSprite('タップで方向を決定！', 60, '#FFFFFF')
+    this.instructionSprite.position.set(0, 0.7, 0)
     this.uiContainer.add(this.instructionSprite)
   }
 
@@ -500,7 +500,7 @@ export class GameScene extends BaseScene {
     this.gaugeDirection = 1
     this.phase = 'elevation'
 
-    updateUITextSprite(this.instructionSprite!, 'タップで角度を決定！', 48, '#FFFFFF')
+    updateUITextSprite(this.instructionSprite!, 'タップで角度を決定！', 60, '#FFFFFF')
   }
 
   private confirmElevation() {
@@ -514,7 +514,7 @@ export class GameScene extends BaseScene {
     this.gaugeDirection = 1
     this.phase = 'power'
 
-    updateUITextSprite(this.instructionSprite!, 'タップでパワーを決定！', 48, '#FFFFFF')
+    updateUITextSprite(this.instructionSprite!, 'タップでパワーを決定！', 60, '#FFFFFF')
   }
 
   private confirmPowerAndLaunch() {
@@ -533,7 +533,7 @@ export class GameScene extends BaseScene {
     this.aimArrow!.visible = false
     this.trajectoryLine!.visible = false
 
-    updateUITextSprite(this.instructionSprite!, '飛んでいます...', 48, '#FFFFFF')
+    updateUITextSprite(this.instructionSprite!, '飛んでいます...', 60, '#FFFFFF')
 
     const obj = this.createLaunchObject()
     this.currentObject = obj
@@ -609,7 +609,7 @@ export class GameScene extends BaseScene {
     this.phase = 'landed'
     this.game.audioManager.playLand()
 
-    updateUITextSprite(this.instructionSprite!, '着地！', 48, '#00FF00')
+    updateUITextSprite(this.instructionSprite!, '着地！', 60, '#00FF00')
 
     setTimeout(() => {
       this.proceedToNextObject()
@@ -649,8 +649,8 @@ export class GameScene extends BaseScene {
     this.aimArrow!.visible = true
     this.aimArrow!.rotation.set(0, 0, 0)
 
-    updateUITextSprite(this.phaseSprite!, this.getPhaseText(), 64, '#FFD700')
-    updateUITextSprite(this.instructionSprite!, 'タップで方向を決定！', 48, '#FFFFFF')
+    updateUITextSprite(this.phaseSprite!, this.getPhaseText(), 80, '#FFD700')
+    updateUITextSprite(this.instructionSprite!, 'タップで方向を決定！', 60, '#FFFFFF')
 
     this.animateCameraToStart()
   }
@@ -739,7 +739,7 @@ export class GameScene extends BaseScene {
   protected adjustLayout(layout: LayoutInfo): void {
     // ゲージコンテナのスケールを調整
     if (this.gaugeContainer) {
-      const scale = calculateLayoutScale(layout, 0.7)
+      const scale = calculateLayoutScale(layout)
       // 基本スケールは0.3なので、それに掛け合わせる
       const adjustedScale = 0.3 * scale
       this.gaugeContainer.children.forEach((child) => {
@@ -749,7 +749,7 @@ export class GameScene extends BaseScene {
 
     // UIコンテナのスケールを調整
     if (this.uiContainer) {
-      const scale = calculateLayoutScale(layout, 0.7)
+      const scale = calculateLayoutScale(layout)
       this.uiContainer.scale.setScalar(scale)
     }
   }

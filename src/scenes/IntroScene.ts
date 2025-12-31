@@ -246,32 +246,32 @@ export class IntroScene extends BaseScene {
     // タイトル
     this.titleSprite = createTextSprite({
       text: '鏡餅スタッキング',
-      fontSize: 72,
+      fontSize: 84,
       color: '#FFD700',
       glowColor: '#FFD700',
       glowBlur: 20,
       shadowColor: '#8B0000',
       shadowBlur: 8
     })
-    this.titleSprite.position.set(0, 2, 0)
+    this.titleSprite.position.set(0, 2.2, 0)
     this.titleSprite.scale.multiplyScalar(1.5)
     this.uiGroup.add(this.titleSprite)
 
     // サブタイトル
     this.subtitleSprite = createTextSprite({
       text: 'あけましておめでとうございます！',
-      fontSize: 32,
+      fontSize: 40,
       color: '#ffffff',
       shadowColor: 'rgba(0,0,0,0.8)',
       shadowBlur: 4
     })
-    this.subtitleSprite.position.set(0, 1.2, 0)
+    this.subtitleSprite.position.set(0, 1.3, 0)
     this.uiGroup.add(this.subtitleSprite)
 
     // 説明テキスト
     this.instructionSprite = createTextSprite({
       text: '餅を積み上げて100点を目指せ！',
-      fontSize: 24,
+      fontSize: 32,
       color: '#cccccc'
     })
     this.instructionSprite.position.set(0, 0.7, 0)
@@ -280,24 +280,24 @@ export class IntroScene extends BaseScene {
     // スタートボタン
     this.startButton = new Button3D({
       text: 'スタート',
-      width: 3,
-      height: 0.8,
-      fontSize: 40,
+      width: 3.2,
+      height: 0.9,
+      fontSize: 48,
       onClick: async () => {
         this.game.audioManager.playClick()
         await this.game.audioManager.resume()
         this.game.sceneManager.switchTo('game')
       }
     })
-    this.startButton.position.set(0, -0.3, 0)
+    this.startButton.position.set(0, -0.4, 0)
     this.uiGroup.add(this.startButton)
 
     // 設定ボタン
     this.settingsButton = new Button3D({
       text: '設定',
-      width: 2.5,
-      height: 0.6,
-      fontSize: 32,
+      width: 2.8,
+      height: 0.7,
+      fontSize: 40,
       backgroundColor: 0xdddddd,
       hoverColor: 0xeeeeee,
       activeColor: 0xcccccc,
@@ -308,7 +308,7 @@ export class IntroScene extends BaseScene {
         this.toggleSettings()
       }
     })
-    this.settingsButton.position.set(0, -1.2, 0)
+    this.settingsButton.position.set(0, -1.5, 0)
     this.uiGroup.add(this.settingsButton)
 
     // 設定パネルを作成
@@ -323,8 +323,8 @@ export class IntroScene extends BaseScene {
 
     // パネル背景
     this.settingsPanel = createPanel3D({
-      width: 5,
-      height: 4,
+      width: 5.5,
+      height: 4.5,
       color: 0x000000,
       opacity: 0.9,
       borderColor: 0xffd700
@@ -334,16 +334,16 @@ export class IntroScene extends BaseScene {
     // タイトル
     const settingsTitleSprite = createTextSprite({
       text: '設定',
-      fontSize: 48,
+      fontSize: 56,
       color: '#FFD700'
     })
-    settingsTitleSprite.position.set(0, 1.4, 0.1)
+    settingsTitleSprite.position.set(0, 1.5, 0.1)
     this.settingsGroup.add(settingsTitleSprite)
 
     // マスター音量スライダー
     this.masterVolumeSlider = new Slider3D({
       label: 'マスター',
-      width: 2.5,
+      width: 2.8,
       initialValue: 0.7,
       onChange: (value) => {
         this.game.audioManager.setMasterVolume(value)
@@ -355,21 +355,21 @@ export class IntroScene extends BaseScene {
     // BGM音量スライダー
     this.bgmVolumeSlider = new Slider3D({
       label: 'BGM',
-      width: 2.5,
+      width: 2.8,
       initialValue: 0.5,
       onChange: (value) => {
         this.game.audioManager.setBgmVolume(value)
       }
     })
-    this.bgmVolumeSlider.position.set(0.3, -0.2, 0.1)
+    this.bgmVolumeSlider.position.set(0.3, -0.3, 0.1)
     this.settingsGroup.add(this.bgmVolumeSlider)
 
     // 閉じるボタン
     this.closeSettingsButton = new Button3D({
       text: '閉じる',
-      width: 2,
-      height: 0.6,
-      fontSize: 32,
+      width: 2.4,
+      height: 0.7,
+      fontSize: 40,
       onClick: async () => {
         this.game.audioManager.playClick()
         await this.game.audioManager.resume()
@@ -377,7 +377,7 @@ export class IntroScene extends BaseScene {
         this.game.audioManager.playBgm()
       }
     })
-    this.closeSettingsButton.position.set(0, -1.3, 0.1)
+    this.closeSettingsButton.position.set(0, -1.4, 0.1)
     this.settingsGroup.add(this.closeSettingsButton)
   }
 
@@ -578,16 +578,16 @@ export class IntroScene extends BaseScene {
     if (layout.mode === 'portrait') {
       // 縦画面: カメラを遠くに配置
       const zoomOut = 1 / layout.screenAspect
-      this.game.camera.position.set(0, 5, 12 + (zoomOut - 1) * 8)
+      this.game.camera.position.set(0, 5, 12 + (zoomOut - 1) * 6)
     } else {
       // 横画面: 通常の設定
       this.game.camera.position.set(0, 5, 12)
     }
     this.game.camera.lookAt(0, 2, 0)
 
-    // UIグループのスケールを調整
+    // UIグループのスケールを調整（新しいデフォルト0.8を使用）
     if (this.uiGroup) {
-      const scale = calculateLayoutScale(layout, 0.6)
+      const scale = calculateLayoutScale(layout)
       this.uiGroup.scale.setScalar(scale)
     }
 
