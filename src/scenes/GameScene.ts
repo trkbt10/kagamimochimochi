@@ -51,6 +51,13 @@ export class GameScene extends BaseScene {
   private powerGauge: GaugeGroup | null = null
   private gaugeContainer: THREE.Group | null = null
 
+  // Trajectory prediction line
+  private trajectoryLine: THREE.Line | null = null
+  private trajectoryPoints: THREE.Vector3[] = []
+
+  // Target marker (shows where dai is)
+  private targetMarker: THREE.Mesh | null = null
+
   // HTML UI elements (minimal - only text)
   private phaseIndicator: HTMLElement | null = null
   private instruction: HTMLElement | null = null
@@ -63,9 +70,11 @@ export class GameScene extends BaseScene {
     this.resetState()
     this.setupPhysics()
     this.setupScene()
+    this.createTrajectoryLine()
     this.create3DGauges()
     this.buildUI()
     this.setupEventListeners()
+    this.setupCamera()
     this.game.audioManager.playBgm()
   }
 
@@ -110,6 +119,7 @@ export class GameScene extends BaseScene {
         this.gaugeDirection = 1
       }
       this.update3DGauges()
+      this.updateTrajectory()
     }
 
     // Check if object has landed
@@ -143,6 +153,117 @@ export class GameScene extends BaseScene {
 
     // Make gauge face the camera (billboard)
     this.gaugeContainer.quaternion.copy(camera.quaternion)
+  }
+
+  private createTrajectoryLine() {
+    // Create trajectory line with initial points
+    const numPoints = 50
+    this.trajectoryPoints = []
+    for (let i = 0; i < numPoints; i++) {
+      this.trajectoryPoints.push(new THREE.Vector3())
+    }
+
+    const geometry = new THREE.BufferGeometry().setFromPoints(this.trajectoryPoints)
+    const material = new THREE.LineDashedMaterial({
+      color: 0x00ffff,
+      dashSize: 0.3,
+      gapSize: 0.15,
+      transparent: true,
+      opacity: 0.8
+    })
+
+    this.trajectoryLine = new THREE.Line(geometry, material)
+    this.trajectoryLine.computeLineDistances()
+    this.scene.add(this.trajectoryLine)
+
+    // Create target marker ring on the ground to show where dai is
+    const ringGeometry = new THREE.RingGeometry(1.8, 2.2, 32)
+    const ringMaterial = new THREE.MeshBasicMaterial({
+      color: 0xffd700,
+      transparent: true,
+      opacity: 0.5,
+      side: THREE.DoubleSide
+    })
+    this.targetMarker = new THREE.Mesh(ringGeometry, ringMaterial)
+    this.targetMarker.rotation.x = -Math.PI / 2
+    this.targetMarker.position.set(0, -1.45, 0)
+    this.scene.add(this.targetMarker)
+  }
+
+  private updateTrajectory() {
+    if (!this.trajectoryLine) return
+
+    // Calculate trajectory based on current angle and power
+    const powerMultiplier = 0.12 + (this.power / 100) * 0.15
+    const hRad = (this.angleH * Math.PI) / 180
+    const vRad = (this.angleV * Math.PI) / 180
+    const speed = 8 + powerMultiplier * 20
+
+    // Initial velocity
+    const vx = Math.sin(hRad) * speed * Math.cos(vRad)
+    const vy = Math.sin(vRad) * speed
+    const vz = -Math.cos(hRad) * speed * Math.cos(vRad)
+
+    // Gravity
+    const gravity = -15
+
+    // Calculate trajectory points
+    const dt = 0.05 // Time step
+    let x = this.launchPosition.x
+    let y = this.launchPosition.y
+    let z = this.launchPosition.z
+    let velY = vy
+
+    for (let i = 0; i < this.trajectoryPoints.length; i++) {
+      this.trajectoryPoints[i].set(x, y, z)
+
+      // Update position
+      x += vx * dt
+      y += velY * dt
+      z += vz * dt
+      velY += gravity * dt
+
+      // Stop if below ground
+      if (y < -2) {
+        // Fill remaining points with last valid position
+        for (let j = i + 1; j < this.trajectoryPoints.length; j++) {
+          this.trajectoryPoints[j].set(x, -2, z)
+        }
+        break
+      }
+    }
+
+    // Update line geometry
+    const positions = this.trajectoryLine.geometry.attributes.position
+    for (let i = 0; i < this.trajectoryPoints.length; i++) {
+      positions.setXYZ(i, this.trajectoryPoints[i].x, this.trajectoryPoints[i].y, this.trajectoryPoints[i].z)
+    }
+    positions.needsUpdate = true
+    this.trajectoryLine.computeLineDistances()
+
+    // Update line color based on where it lands relative to target
+    const landingX = this.trajectoryPoints[this.trajectoryPoints.length - 1].x
+    const landingZ = this.trajectoryPoints[this.trajectoryPoints.length - 1].z
+    const distFromTarget = Math.sqrt(landingX ** 2 + landingZ ** 2)
+
+    const lineMaterial = this.trajectoryLine.material as THREE.LineDashedMaterial
+    if (distFromTarget < 2) {
+      lineMaterial.color.setHex(0x00ff00) // Green - good aim
+    } else if (distFromTarget < 4) {
+      lineMaterial.color.setHex(0xffff00) // Yellow - close
+    } else {
+      lineMaterial.color.setHex(0x00ffff) // Cyan - default
+    }
+  }
+
+  private setupCamera() {
+    // Position camera behind and above the launch point, looking at the target
+    // This allows seeing both launch position and dai (target)
+    const camera = this.game.camera
+
+    // Camera positioned behind launch point, elevated, looking at target area
+    camera.position.set(0, 5, 18)
+    camera.lookAt(0, 0, 0) // Look at center (dai position)
   }
 
   private create3DGauges() {
@@ -522,10 +643,6 @@ export class GameScene extends BaseScene {
 
     // Create aim arrow
     this.createAimArrow()
-
-    // Position camera
-    this.game.camera.position.set(0, 6, 15)
-    this.game.camera.lookAt(0, 0, 0)
   }
 
   private createAimArrow() {
@@ -659,9 +776,10 @@ export class GameScene extends BaseScene {
     this.phase = 'flying'
     this.game.audioManager.playLaunch()
 
-    // Hide all gauges
+    // Hide all gauges and trajectory
     if (this.gaugeContainer) this.gaugeContainer.visible = false
     if (this.aimArrow) this.aimArrow.visible = false
+    if (this.trajectoryLine) this.trajectoryLine.visible = false
 
     if (this.instruction) {
       this.instruction.textContent = '飛んでいます...'
@@ -787,8 +905,9 @@ export class GameScene extends BaseScene {
     this.gaugeValue = 50
     this.gaugeDirection = 1
 
-    // Show gauges again
+    // Show gauges and trajectory again
     if (this.gaugeContainer) this.gaugeContainer.visible = true
+    if (this.trajectoryLine) this.trajectoryLine.visible = true
     if (this.directionGauge) this.directionGauge.group.visible = true
     if (this.elevationGauge) this.elevationGauge.group.visible = false
     if (this.powerGauge) {
@@ -811,10 +930,11 @@ export class GameScene extends BaseScene {
       this.instruction.textContent = 'タップで方向を決定！'
     }
 
+    // Reset camera to good viewing position
     gsap.to(this.game.camera.position, {
       x: 0,
-      y: 6,
-      z: 15,
+      y: 5,
+      z: 18,
       duration: 0.5
     })
   }
