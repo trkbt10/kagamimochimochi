@@ -70,6 +70,9 @@ export class GameScene extends BaseScene {
   private instructionSprite: THREE.Sprite | null = null
   private uiContainer: THREE.Group | null = null
 
+  // Preview mesh (shown before launch)
+  private previewMesh: THREE.Mesh | null = null
+
   constructor(game: Game) {
     super(game)
   }
@@ -83,6 +86,7 @@ export class GameScene extends BaseScene {
     this.buildUI()
     this.setupEventListeners()
     this.setupCamera()
+    this.createPreviewMesh() // 発射前のプレビューモデルを表示
     this.game.audioManager.playBgm()
   }
 
@@ -90,6 +94,7 @@ export class GameScene extends BaseScene {
     this.game.audioManager.stopBgm()
     this.removeUI()
     this.removeEventListeners()
+    this.removePreviewMesh() // プレビューメッシュをクリーンアップ
     this.clearScene()
     this.world = null
   }
@@ -725,6 +730,70 @@ export class GameScene extends BaseScene {
     this.aimArrow.rotation.x = -vRad
   }
 
+  /**
+   * 発射前のプレビュー用メッシュを作成（物理なし、ビジュアルのみ）
+   */
+  private createPreviewMesh() {
+    // 既存のプレビューメッシュがあれば削除
+    this.removePreviewMesh()
+
+    let geometry: THREE.BufferGeometry
+    let material: THREE.Material
+
+    switch (this.currentType) {
+      case 'base':
+        geometry = this.createMochiGeometry(1.5, 0.75)
+        material = new THREE.MeshStandardMaterial({
+          color: 0xfff8e7,
+          roughness: 0.9,
+          metalness: 0.0,
+          transparent: true,
+          opacity: 0.85
+        })
+        break
+      case 'top':
+        geometry = this.createMochiGeometry(1.1, 0.55)
+        material = new THREE.MeshStandardMaterial({
+          color: 0xfff8e7,
+          roughness: 0.9,
+          metalness: 0.0,
+          transparent: true,
+          opacity: 0.85
+        })
+        break
+      case 'mikan':
+      default:
+        geometry = new THREE.SphereGeometry(0.5, 32, 24)
+        material = new THREE.MeshStandardMaterial({
+          color: 0xff8c00,
+          roughness: 0.8,
+          metalness: 0.0,
+          transparent: true,
+          opacity: 0.85
+        })
+        break
+    }
+
+    this.previewMesh = new THREE.Mesh(geometry, material)
+    this.previewMesh.castShadow = true
+    this.previewMesh.position.copy(this.launchPosition)
+    this.scene.add(this.previewMesh)
+  }
+
+  /**
+   * プレビューメッシュを削除
+   */
+  private removePreviewMesh() {
+    if (this.previewMesh) {
+      this.scene.remove(this.previewMesh)
+      this.previewMesh.geometry.dispose()
+      if (this.previewMesh.material instanceof THREE.Material) {
+        this.previewMesh.material.dispose()
+      }
+      this.previewMesh = null
+    }
+  }
+
   private buildUI() {
     // 3D UI コンテナを作成（カメラに追従）
     this.uiContainer = new THREE.Group()
@@ -888,6 +957,9 @@ export class GameScene extends BaseScene {
     this.phase = 'flying'
     this.flyingStartTime = Date.now() // 飛行開始時間を記録
     this.game.audioManager.playLaunch()
+
+    // プレビューメッシュを削除（発射オブジェクトに置き換え）
+    this.removePreviewMesh()
 
     // Hide all gauges and trajectory
     if (this.gaugeContainer) this.gaugeContainer.visible = false
@@ -1163,6 +1235,9 @@ export class GameScene extends BaseScene {
         this.game.camera.lookAt(0, 0, 5)
       }
     })
+
+    // 次の発射オブジェクトのプレビューを表示
+    this.createPreviewMesh()
   }
 
   private calculateAndShowResult() {
