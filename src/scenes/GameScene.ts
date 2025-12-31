@@ -940,38 +940,95 @@ export class GameScene extends BaseScene {
   }
 
   /**
-   * お餅らしい形状を作成（下が広く上が丸い鏡餅型）
-   * @param radius 底面の半径
-   * @param height 高さ
+   * 鏡餅の断面プロファイルを計算（視覚・物理で共通使用）
    */
-  private createMochiGeometry(radius: number, height: number): THREE.BufferGeometry {
-    // LatheGeometryで回転体を作成
-    // お餅の断面形状：下が広く、上に向かって丸みを帯びる
-    const points: THREE.Vector2[] = []
-    const segments = 16
+  private getMochiProfile(radius: number, height: number, segments: number = 8): { r: number; y: number }[] {
+    const points: { r: number; y: number }[] = []
+    const topRadius = radius * 0.65
 
     for (let i = 0; i <= segments; i++) {
-      const t = i / segments // 0 から 1
-      // 下から上への曲線
-      // 底面は広く (radius)、上は狭く (radius * 0.65)
-      const topRadius = radius * 0.65
-
-      // 滑らかな曲線で下が広く上が狭い形状
-      // easeInOut的な曲線で自然な丸みを出す
+      const t = i / segments
       const ease = t * t * (3 - 2 * t) // smoothstep
       const r = radius - (radius - topRadius) * ease
-
-      // 高さ方向
       const y = -height / 2 + height * t
-
-      points.push(new THREE.Vector2(r, y))
+      points.push({ r, y })
     }
 
+    return points
+  }
+
+  /**
+   * お餅らしい形状を作成（下が広く上が丸い鏡餅型）- 視覚用
+   */
+  private createMochiGeometry(radius: number, height: number): THREE.BufferGeometry {
+    const profile = this.getMochiProfile(radius, height, 16)
+    const points = profile.map(p => new THREE.Vector2(p.r, p.y))
     // 上面を閉じる
     points.push(new THREE.Vector2(0, height / 2))
+    return new THREE.LatheGeometry(points, 32)
+  }
 
-    const geometry = new THREE.LatheGeometry(points, 32)
-    return geometry
+  /**
+   * お餅の物理形状を作成（視覚と一致するConvexPolyhedron）
+   */
+  private createMochiPhysicsShape(radius: number, height: number): CANNON.Shape {
+    const profile = this.getMochiProfile(radius, height, 6) // 物理用は軽量化
+    const radialSegments = 12
+
+    const vertices: CANNON.Vec3[] = []
+    const faces: number[][] = []
+
+    // 回転体の頂点を生成
+    for (let i = 0; i < profile.length; i++) {
+      const { r, y } = profile[i]
+      for (let j = 0; j < radialSegments; j++) {
+        const angle = (j / radialSegments) * Math.PI * 2
+        vertices.push(new CANNON.Vec3(
+          r * Math.cos(angle),
+          y,
+          r * Math.sin(angle)
+        ))
+      }
+    }
+
+    // 上端の中心点を追加
+    const topCenterIndex = vertices.length
+    vertices.push(new CANNON.Vec3(0, height / 2, 0))
+
+    // 底面の中心点を追加
+    const bottomCenterIndex = vertices.length
+    vertices.push(new CANNON.Vec3(0, -height / 2, 0))
+
+    // 側面の面を生成
+    for (let i = 0; i < profile.length - 1; i++) {
+      for (let j = 0; j < radialSegments; j++) {
+        const curr = i * radialSegments + j
+        const next = i * radialSegments + ((j + 1) % radialSegments)
+        const currUp = (i + 1) * radialSegments + j
+        const nextUp = (i + 1) * radialSegments + ((j + 1) % radialSegments)
+
+        // 2つの三角形で四角形を構成
+        faces.push([curr, next, nextUp])
+        faces.push([curr, nextUp, currUp])
+      }
+    }
+
+    // 上面（最後のリングから中心点へ）
+    const topRing = (profile.length - 1) * radialSegments
+    for (let j = 0; j < radialSegments; j++) {
+      const curr = topRing + j
+      const next = topRing + ((j + 1) % radialSegments)
+      faces.push([curr, topCenterIndex, next])
+    }
+
+    // 底面
+    for (let j = 0; j < radialSegments; j++) {
+      const curr = j
+      const next = (j + 1) % radialSegments
+      faces.push([next, bottomCenterIndex, curr])
+    }
+
+    return new CANNON.ConvexPolyhedron({ vertices, faces })
   }
 
   private createLaunchObject(): LaunchedObject {
@@ -989,8 +1046,8 @@ export class GameScene extends BaseScene {
           roughness: 0.9,
           metalness: 0.0
         })
-        // 下が広い円柱で安定性向上（転がりにくい）
-        shape = new CANNON.Cylinder(1.0, 1.5, 0.75, 16)
+        // 視覚と一致するConvexPolyhedron
+        shape = this.createMochiPhysicsShape(1.5, 0.75)
         mass = 3
         break
       case 'top':
@@ -1001,8 +1058,8 @@ export class GameScene extends BaseScene {
           roughness: 0.9,
           metalness: 0.0
         })
-        // 下が広い円柱で安定性向上
-        shape = new CANNON.Cylinder(0.7, 1.1, 0.55, 16)
+        // 視覚と一致するConvexPolyhedron
+        shape = this.createMochiPhysicsShape(1.1, 0.55)
         mass = 2
         break
       case 'mikan':
