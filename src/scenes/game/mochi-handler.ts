@@ -90,7 +90,8 @@ const createMochiMaterial = (color: number, opacity?: number): THREE.MeshStandar
     roughness: 0.9,
     metalness: 0.0,
     transparent: opacity !== undefined,
-    opacity: opacity ?? 1
+    opacity: opacity ?? 1,
+    side: THREE.DoubleSide
   })
 
 const BASE_HANDLER: MochiHandler = {
@@ -119,7 +120,8 @@ const MIKAN_HANDLER: MochiHandler = {
       roughness: 0.8,
       metalness: 0.0,
       transparent: opacity !== undefined,
-      opacity: opacity ?? 1
+      opacity: opacity ?? 1,
+      side: THREE.DoubleSide
     }),
   createPhysicsShape: () => new CANNON.Sphere(0.5)
 }
