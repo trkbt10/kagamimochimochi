@@ -2,22 +2,49 @@ import * as THREE from 'three'
 import { gsap } from 'gsap'
 import { BaseScene } from './BaseScene'
 import type { Game } from '../core/Game'
+import { createTextSprite, Button3D, createConfettiSystem, updateConfetti } from '../ui/ThreeUI'
 
 export class ResultScene extends BaseScene {
   private score = 0
   private particles: THREE.Points | null = null
   private kagamimochi: THREE.Group | null = null
-  private confettiElements: HTMLElement[] = []
+  private confetti: THREE.Points | null = null
+
+  // UI要素
+  private uiGroup: THREE.Group | null = null
+  private scoreLabelSprite: THREE.Sprite | null = null
+  private scoreSprite: THREE.Sprite | null = null
+  private ratingSprite: THREE.Sprite | null = null
+  private ratingTextSprite: THREE.Sprite | null = null
+  private backButton: Button3D | null = null
+  private shareButton: Button3D | null = null
+
+  // Raycaster
+  private raycaster = new THREE.Raycaster()
+  private mouse = new THREE.Vector2()
+  private hoveredButton: Button3D | null = null
+
+  // イベントハンドラ
+  private boundOnPointerMove: (e: PointerEvent) => void
+  private boundOnPointerDown: (e: PointerEvent) => void
+  private boundOnPointerUp: (e: PointerEvent) => void
+
+  // アニメーション用
+  private displayedScore = 0
 
   constructor(game: Game) {
     super(game)
+    this.boundOnPointerMove = this.onPointerMove.bind(this)
+    this.boundOnPointerDown = this.onPointerDown.bind(this)
+    this.boundOnPointerUp = this.onPointerUp.bind(this)
   }
 
   async enter(data?: Record<string, unknown>) {
     this.score = (data?.score as number) || 0
+    this.displayedScore = 0
 
     this.setupScene()
-    this.buildUI()
+    this.buildUI3D()
     this.setupEventListeners()
     this.playResultAnimation()
 
@@ -30,8 +57,7 @@ export class ResultScene extends BaseScene {
   }
 
   async exit() {
-    this.removeUI()
-    this.clearConfetti()
+    this.removeEventListeners()
     this.clearScene()
   }
 
@@ -42,6 +68,16 @@ export class ResultScene extends BaseScene {
 
     if (this.kagamimochi) {
       this.kagamimochi.rotation.y += delta * 0.5
+    }
+
+    // 紙吹雪のアニメーション
+    if (this.confetti) {
+      updateConfetti(this.confetti, delta)
+    }
+
+    // UIをカメラに向ける
+    if (this.uiGroup) {
+      this.uiGroup.lookAt(this.game.camera.position)
     }
   }
 
@@ -58,6 +94,15 @@ export class ResultScene extends BaseScene {
     const spotlight = new THREE.SpotLight(0xffd700, 2, 30, Math.PI / 4, 0.5)
     spotlight.position.set(0, 15, 5)
     this.scene.add(spotlight)
+
+    // 追加のライト（スコアに応じた色）
+    const accentLight = new THREE.PointLight(
+      this.score >= 80 ? 0xffd700 : this.score >= 50 ? 0xffffff : 0xff3333,
+      1,
+      20
+    )
+    accentLight.position.set(0, 5, 5)
+    this.scene.add(accentLight)
 
     // Create floating particles
     this.createParticles()
@@ -164,28 +209,89 @@ export class ResultScene extends BaseScene {
     this.scene.add(this.kagamimochi)
   }
 
-  private buildUI() {
+  private buildUI3D() {
+    this.uiGroup = new THREE.Group()
+    this.uiGroup.position.set(0, 4, 4)
+    this.scene.add(this.uiGroup)
+
     const rating = this.getRating()
 
-    this.ui = this.createUI(`
-      <div class="result-overlay active">
-        <div class="score-label">YOUR SCORE</div>
-        <div class="score-display" id="scoreDisplay">0</div>
-        <div class="rating" id="rating">${rating.emoji}</div>
-        <div class="subtitle" style="margin-top: 1rem; color: #fff;">${rating.text}</div>
+    // スコアラベル
+    this.scoreLabelSprite = createTextSprite({
+      text: 'YOUR SCORE',
+      fontSize: 36,
+      color: '#ffffff'
+    })
+    this.scoreLabelSprite.position.set(0, 2.5, 0)
+    this.uiGroup.add(this.scoreLabelSprite)
 
-        <div class="share-buttons">
-          <button class="share-btn twitter" id="shareTwitter">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
-            </svg>
-            Xでシェア
-          </button>
-        </div>
+    // スコア表示
+    this.scoreSprite = createTextSprite({
+      text: '0',
+      fontSize: 120,
+      color: '#FFD700',
+      glowColor: '#FFD700',
+      glowBlur: 30,
+      shadowColor: '#FFA500',
+      shadowBlur: 10
+    })
+    this.scoreSprite.position.set(0, 1.5, 0)
+    this.scoreSprite.scale.multiplyScalar(2)
+    this.uiGroup.add(this.scoreSprite)
 
-        <button class="btn" style="margin-top: 2rem;" id="backToTitle">タイトルに戻る</button>
-      </div>
-    `)
+    // 評価絵文字
+    this.ratingSprite = createTextSprite({
+      text: rating.emoji,
+      fontSize: 72,
+      color: '#ffffff'
+    })
+    this.ratingSprite.position.set(0, 0.3, 0)
+    this.ratingSprite.scale.set(0, 0, 0) // アニメーション用に初期化
+    this.uiGroup.add(this.ratingSprite)
+
+    // 評価テキスト
+    this.ratingTextSprite = createTextSprite({
+      text: rating.text,
+      fontSize: 32,
+      color: '#ffffff',
+      shadowColor: 'rgba(0,0,0,0.8)',
+      shadowBlur: 4
+    })
+    this.ratingTextSprite.position.set(0, -0.3, 0)
+    this.ratingTextSprite.material.opacity = 0 // アニメーション用に初期化
+    this.uiGroup.add(this.ratingTextSprite)
+
+    // シェアボタン
+    this.shareButton = new Button3D({
+      text: 'Xでシェア',
+      width: 2.5,
+      height: 0.6,
+      fontSize: 28,
+      backgroundColor: 0x000000,
+      hoverColor: 0x333333,
+      activeColor: 0x111111,
+      borderColor: 0x444444,
+      textColor: '#ffffff',
+      onClick: () => {
+        this.shareToTwitter()
+      }
+    })
+    this.shareButton.position.set(0, -1.3, 0)
+    this.uiGroup.add(this.shareButton)
+
+    // タイトルに戻るボタン
+    this.backButton = new Button3D({
+      text: 'タイトルに戻る',
+      width: 3,
+      height: 0.7,
+      fontSize: 32,
+      onClick: () => {
+        this.game.audioManager.playClick()
+        this.game.sceneManager.switchTo('intro')
+      }
+    })
+    this.backButton.position.set(0, -2.3, 0)
+    this.uiGroup.add(this.backButton)
   }
 
   private getRating(): { emoji: string; text: string } {
@@ -205,19 +311,88 @@ export class ResultScene extends BaseScene {
   }
 
   private setupEventListeners() {
-    if (!this.ui) return
+    const canvas = this.game.renderer.domElement
+    canvas.addEventListener('pointermove', this.boundOnPointerMove)
+    canvas.addEventListener('pointerdown', this.boundOnPointerDown)
+    canvas.addEventListener('pointerup', this.boundOnPointerUp)
+  }
 
-    const shareTwitterBtn = this.ui.querySelector('#shareTwitter') as HTMLButtonElement
-    const backBtn = this.ui.querySelector('#backToTitle') as HTMLButtonElement
+  private removeEventListeners() {
+    const canvas = this.game.renderer.domElement
+    canvas.removeEventListener('pointermove', this.boundOnPointerMove)
+    canvas.removeEventListener('pointerdown', this.boundOnPointerDown)
+    canvas.removeEventListener('pointerup', this.boundOnPointerUp)
+  }
 
-    shareTwitterBtn.addEventListener('click', () => {
-      this.shareToTwitter()
-    })
+  private updateMousePosition(e: PointerEvent) {
+    const rect = this.game.renderer.domElement.getBoundingClientRect()
+    this.mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1
+    this.mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1
+  }
 
-    backBtn.addEventListener('click', () => {
-      this.game.audioManager.playClick()
-      this.game.sceneManager.switchTo('intro')
-    })
+  private onPointerMove(e: PointerEvent) {
+    this.updateMousePosition(e)
+    this.raycaster.setFromCamera(this.mouse, this.game.camera)
+
+    const buttons = this.getInteractiveButtons()
+    const intersects = this.raycaster.intersectObjects(buttons.map(b => b.getMesh()))
+
+    // 以前のホバー状態をクリア
+    if (this.hoveredButton) {
+      this.hoveredButton.setHovered(false)
+      this.hoveredButton = null
+    }
+
+    if (intersects.length > 0) {
+      const button = intersects[0].object.userData.button as Button3D | undefined
+      if (button) {
+        button.setHovered(true)
+        this.hoveredButton = button
+        this.game.renderer.domElement.style.cursor = 'pointer'
+      }
+    } else {
+      this.game.renderer.domElement.style.cursor = 'default'
+    }
+  }
+
+  private onPointerDown(e: PointerEvent) {
+    this.updateMousePosition(e)
+    this.raycaster.setFromCamera(this.mouse, this.game.camera)
+
+    const buttons = this.getInteractiveButtons()
+    const intersects = this.raycaster.intersectObjects(buttons.map(b => b.getMesh()))
+
+    if (intersects.length > 0) {
+      const button = intersects[0].object.userData.button as Button3D | undefined
+      if (button) {
+        button.setPressed(true)
+      }
+    }
+  }
+
+  private onPointerUp(e: PointerEvent) {
+    this.updateMousePosition(e)
+    this.raycaster.setFromCamera(this.mouse, this.game.camera)
+
+    const buttons = this.getInteractiveButtons()
+    const intersects = this.raycaster.intersectObjects(buttons.map(b => b.getMesh()))
+
+    // すべてのボタンの押下状態をクリア
+    buttons.forEach(b => b.setPressed(false))
+
+    if (intersects.length > 0) {
+      const button = intersects[0].object.userData.button as Button3D | undefined
+      if (button && button.onClick) {
+        button.onClick()
+      }
+    }
+  }
+
+  private getInteractiveButtons(): Button3D[] {
+    const buttons: Button3D[] = []
+    if (this.shareButton) buttons.push(this.shareButton)
+    if (this.backButton) buttons.push(this.backButton)
+    return buttons
   }
 
   private shareToTwitter() {
@@ -229,40 +404,40 @@ export class ResultScene extends BaseScene {
   }
 
   private playResultAnimation() {
-    // Animate score counter
-    const scoreDisplay = this.ui?.querySelector('#scoreDisplay')
-    if (scoreDisplay) {
-      gsap.fromTo(
-        { val: 0 },
-        { val: this.score },
-        {
-          duration: 2,
-          ease: 'power2.out',
-          onUpdate: function (this: gsap.core.Tween) {
-            const target = this.targets()[0] as { val: number }
-            scoreDisplay.textContent = Math.round(target.val).toString()
-          }
-        }
-      )
+    // スコアカウントアップアニメーション
+    const animationObj = { val: 0 }
+    gsap.to(animationObj, {
+      val: this.score,
+      duration: 2,
+      ease: 'power2.out',
+      onUpdate: () => {
+        this.displayedScore = Math.round(animationObj.val)
+        this.updateScoreDisplay()
+      }
+    })
+
+    // 評価の表示アニメーション
+    if (this.ratingSprite) {
+      gsap.to(this.ratingSprite.scale, {
+        x: 1.5,
+        y: 1.5,
+        z: 1,
+        duration: 0.5,
+        delay: 1.5,
+        ease: 'elastic.out(1, 0.5)'
+      })
     }
 
-    // Animate rating
-    const rating = this.ui?.querySelector('#rating')
-    if (rating) {
-      gsap.fromTo(
-        rating,
-        { scale: 0, opacity: 0 },
-        {
-          scale: 1,
-          opacity: 1,
-          duration: 0.5,
-          delay: 1.5,
-          ease: 'elastic.out(1, 0.5)'
-        }
-      )
+    // 評価テキストのフェードイン
+    if (this.ratingTextSprite) {
+      gsap.to(this.ratingTextSprite.material, {
+        opacity: 1,
+        duration: 0.5,
+        delay: 2
+      })
     }
 
-    // Animate kagamimochi
+    // 鏡餅のアニメーション
     if (this.kagamimochi) {
       gsap.from(this.kagamimochi.scale, {
         x: 0,
@@ -273,39 +448,48 @@ export class ResultScene extends BaseScene {
       })
     }
 
-    // Animate camera
+    // カメラアニメーション
     gsap.from(this.game.camera.position, {
       z: 20,
       y: 10,
       duration: 1.5,
       ease: 'power2.out'
     })
-  }
 
-  private spawnConfetti() {
-    const colors = ['#FFD700', '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FF8C00']
-
-    for (let i = 0; i < 100; i++) {
-      setTimeout(() => {
-        const confetti = document.createElement('div')
-        confetti.className = 'confetti'
-        confetti.style.left = `${Math.random() * 100}%`
-        confetti.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)]
-        confetti.style.animationDelay = `${Math.random() * 2}s`
-        confetti.style.animationDuration = `${2 + Math.random() * 2}s`
-        document.body.appendChild(confetti)
-        this.confettiElements.push(confetti)
-
-        // Remove after animation
-        setTimeout(() => {
-          confetti.remove()
-        }, 5000)
-      }, i * 50)
+    // UIグループのアニメーション
+    if (this.uiGroup) {
+      gsap.from(this.uiGroup.position, {
+        y: 10,
+        duration: 1.2,
+        delay: 0.3,
+        ease: 'elastic.out(1, 0.7)'
+      })
     }
   }
 
-  private clearConfetti() {
-    this.confettiElements.forEach(el => el.remove())
-    this.confettiElements = []
+  private updateScoreDisplay() {
+    if (this.scoreSprite && this.uiGroup) {
+      // 既存のスコアスプライトを削除
+      this.uiGroup.remove(this.scoreSprite)
+
+      // 新しいスコアスプライトを作成
+      this.scoreSprite = createTextSprite({
+        text: this.displayedScore.toString(),
+        fontSize: 120,
+        color: '#FFD700',
+        glowColor: '#FFD700',
+        glowBlur: 30,
+        shadowColor: '#FFA500',
+        shadowBlur: 10
+      })
+      this.scoreSprite.position.set(0, 1.5, 0)
+      this.scoreSprite.scale.multiplyScalar(2)
+      this.uiGroup.add(this.scoreSprite)
+    }
+  }
+
+  private spawnConfetti() {
+    this.confetti = createConfettiSystem(300)
+    this.scene.add(this.confetti)
   }
 }

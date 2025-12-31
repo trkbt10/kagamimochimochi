@@ -37,6 +37,7 @@
         height: 100%;
       }
 
+      /* UI overlay for game scene text */
       .ui-overlay {
         position: absolute;
         top: 0;
@@ -54,105 +55,7 @@
         pointer-events: auto;
       }
 
-      .title {
-        font-size: clamp(2rem, 8vw, 5rem);
-        color: #FFD700;
-        text-shadow:
-          3px 3px 0 #8B0000,
-          -1px -1px 0 #8B0000,
-          1px -1px 0 #8B0000,
-          -1px 1px 0 #8B0000,
-          0 0 30px rgba(255, 215, 0, 0.5);
-        font-weight: bold;
-        letter-spacing: 0.1em;
-        text-align: center;
-        animation: titlePulse 2s ease-in-out infinite;
-      }
-
-      .subtitle {
-        font-size: clamp(0.8rem, 3vw, 1.5rem);
-        color: #fff;
-        text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
-        margin-top: 1rem;
-        text-align: center;
-      }
-
-      @keyframes titlePulse {
-        0%, 100% { transform: scale(1); }
-        50% { transform: scale(1.05); }
-      }
-
-      .btn {
-        background: linear-gradient(180deg, #FFD700, #FFA500);
-        border: 4px solid #8B0000;
-        border-radius: 15px;
-        padding: 1rem 3rem;
-        font-size: clamp(1rem, 4vw, 1.5rem);
-        font-weight: bold;
-        color: #8B0000;
-        cursor: pointer;
-        margin: 0.5rem;
-        transition: all 0.2s;
-        box-shadow: 0 6px 0 #8B4513, 0 8px 20px rgba(0,0,0,0.4);
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-      }
-
-      .btn:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 8px 0 #8B4513, 0 10px 25px rgba(0,0,0,0.5);
-      }
-
-      .btn:active {
-        transform: translateY(4px);
-        box-shadow: 0 2px 0 #8B4513, 0 4px 10px rgba(0,0,0,0.3);
-      }
-
-      .btn-secondary {
-        background: linear-gradient(180deg, #fff, #ddd);
-        border-color: #666;
-        color: #333;
-        box-shadow: 0 6px 0 #666, 0 8px 20px rgba(0,0,0,0.4);
-      }
-
-      .settings-panel {
-        background: rgba(0, 0, 0, 0.85);
-        border: 3px solid #FFD700;
-        border-radius: 20px;
-        padding: 2rem;
-        max-width: 90%;
-        width: 350px;
-        display: none;
-      }
-
-      .settings-panel.active {
-        display: block;
-      }
-
-      .settings-panel h2 {
-        color: #FFD700;
-        text-align: center;
-        margin-bottom: 1.5rem;
-        font-size: 1.5rem;
-      }
-
-      .setting-row {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        margin-bottom: 1rem;
-        color: #fff;
-      }
-
-      .setting-row label {
-        font-size: 1rem;
-      }
-
-      .setting-row input[type="range"] {
-        width: 150px;
-        accent-color: #FFD700;
-      }
-
+      /* Game UI (phase indicators during gameplay) */
       .game-ui {
         position: absolute;
         width: 100%;
@@ -195,98 +98,6 @@
         25%, 75% { opacity: 0.5; }
       }
 
-      .result-overlay {
-        position: absolute;
-        width: 100%;
-        height: 100%;
-        display: none;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        background: rgba(0, 0, 0, 0.8);
-      }
-
-      .result-overlay.active {
-        display: flex;
-      }
-
-      .score-display {
-        font-size: clamp(4rem, 15vw, 10rem);
-        color: #FFD700;
-        font-weight: bold;
-        text-shadow:
-          0 0 20px #FFD700,
-          0 0 40px #FFA500,
-          0 0 60px #FF6600;
-        animation: scoreGlow 1s ease-in-out infinite alternate;
-      }
-
-      @keyframes scoreGlow {
-        from { text-shadow: 0 0 20px #FFD700, 0 0 40px #FFA500; }
-        to { text-shadow: 0 0 40px #FFD700, 0 0 80px #FFA500, 0 0 120px #FF6600; }
-      }
-
-      .score-label {
-        font-size: clamp(1.5rem, 5vw, 2.5rem);
-        color: #fff;
-        margin-bottom: 1rem;
-      }
-
-      .rating {
-        font-size: clamp(2rem, 8vw, 4rem);
-        margin: 1rem 0;
-        animation: ratingBounce 0.5s ease-out;
-      }
-
-      @keyframes ratingBounce {
-        0% { transform: scale(0); }
-        50% { transform: scale(1.3); }
-        100% { transform: scale(1); }
-      }
-
-      .share-buttons {
-        display: flex;
-        gap: 1rem;
-        margin-top: 2rem;
-        flex-wrap: wrap;
-        justify-content: center;
-      }
-
-      .share-btn {
-        background: #1DA1F2;
-        color: white;
-        border: none;
-        border-radius: 25px;
-        padding: 0.8rem 1.5rem;
-        font-size: 1rem;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        transition: transform 0.2s;
-      }
-
-      .share-btn:hover {
-        transform: scale(1.05);
-      }
-
-      .share-btn.twitter {
-        background: #000;
-      }
-
-      .confetti {
-        position: fixed;
-        width: 10px;
-        height: 10px;
-        pointer-events: none;
-        animation: confettiFall 3s linear forwards;
-      }
-
-      @keyframes confettiFall {
-        0% { transform: translateY(-100vh) rotate(0deg); opacity: 1; }
-        100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
-      }
-
       .loading {
         position: absolute;
         top: 50%;
@@ -294,18 +105,6 @@
         transform: translate(-50%, -50%);
         color: #FFD700;
         font-size: 1.5rem;
-      }
-
-      @media (max-width: 480px) {
-        .btn {
-          padding: 0.8rem 2rem;
-          width: 80%;
-          max-width: 280px;
-        }
-
-        .settings-panel {
-          padding: 1.5rem;
-        }
       }
     </style>
   </head>
