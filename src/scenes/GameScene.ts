@@ -4,13 +4,21 @@ import { gsap } from 'gsap'
 import { BaseScene } from './BaseScene'
 import type { Game } from '../core/Game'
 
-type GamePhase = 'aiming' | 'power' | 'flying' | 'landed' | 'complete'
+type GamePhase = 'direction' | 'elevation' | 'power' | 'flying' | 'landed' | 'complete'
 type MochiType = 'base' | 'top' | 'mikan'
 
 interface LaunchedObject {
   mesh: THREE.Mesh
   body: CANNON.Body
   type: MochiType
+}
+
+interface GaugeGroup {
+  group: THREE.Group
+  track: THREE.Mesh
+  indicator: THREE.Mesh
+  centerMark: THREE.Mesh
+  fill?: THREE.Mesh
 }
 
 export class GameScene extends BaseScene {
@@ -22,28 +30,37 @@ export class GameScene extends BaseScene {
   private currentObject: LaunchedObject | null = null
   private currentType: MochiType = 'base'
 
-  private phase: GamePhase = 'aiming'
-  private angleH = 0 // Horizontal angle
-  private angleV = 45 // Vertical angle (degrees)
+  private phase: GamePhase = 'direction'
+  private angleH = 0 // Horizontal angle (-60 to 60)
+  private angleV = 45 // Vertical angle (15 to 75)
   private power = 50
-  private powerDirection = 1
-  private powerSpeed = 100 // Speed of power meter
+
+  // Golf-style gauge values (0-100, oscillating)
+  private gaugeValue = 50
+  private gaugeDirection = 1
+  private gaugeSpeed = 120 // Speed of gauge oscillation
 
   private aimArrow: THREE.Group | null = null
   private launchPosition = new THREE.Vector3(0, 0, 10)
 
   private dai: THREE.Mesh | null = null
 
-  // UI elements
-  private phaseIndicator: HTMLElement | null = null
-  private powerMeter: HTMLElement | null = null
-  private powerMeterFill: HTMLElement | null = null
-  private angleIndicator: HTMLElement | null = null
-  private instruction: HTMLElement | null = null
+  // 3D Gauge elements
+  private directionGauge: GaugeGroup | null = null
+  private elevationGauge: GaugeGroup | null = null
+  private powerGauge: GaugeGroup | null = null
+  private gaugeContainer: THREE.Group | null = null
 
-  private isTouching = false
-  private touchStartX = 0
-  private touchStartY = 0
+  // Trajectory prediction line
+  private trajectoryLine: THREE.Line | null = null
+  private trajectoryPoints: THREE.Vector3[] = []
+
+  // Target marker (shows where dai is)
+  private targetMarker: THREE.Mesh | null = null
+
+  // HTML UI elements (minimal - only text)
+  private phaseIndicator: HTMLElement | null = null
+  private instruction: HTMLElement | null = null
 
   constructor(game: Game) {
     super(game)
@@ -53,8 +70,11 @@ export class GameScene extends BaseScene {
     this.resetState()
     this.setupPhysics()
     this.setupScene()
+    this.createTrajectoryLine()
+    this.create3DGauges()
     this.buildUI()
     this.setupEventListeners()
+    this.setupCamera()
     this.game.audioManager.playBgm()
   }
 
@@ -78,24 +98,28 @@ export class GameScene extends BaseScene {
       obj.mesh.quaternion.copy(obj.body.quaternion as unknown as THREE.Quaternion)
     }
 
-    // Update aim arrow
-    if (this.aimArrow && this.phase === 'aiming') {
+    // Update aim arrow during gauge phases
+    if (this.aimArrow && (this.phase === 'direction' || this.phase === 'elevation' || this.phase === 'power')) {
       this.updateAimArrow()
     }
 
-    // Update power meter
-    if (this.phase === 'power') {
-      this.power += this.powerDirection * this.powerSpeed * delta
-      if (this.power >= 100) {
-        this.power = 100
-        this.powerDirection = -1
-      } else if (this.power <= 0) {
-        this.power = 0
-        this.powerDirection = 1
+    // Update gauge position to follow camera (billboard style)
+    if (this.gaugeContainer && this.gaugeContainer.visible) {
+      this.updateGaugePosition()
+    }
+
+    // Golf-style gauge oscillation
+    if (this.phase === 'direction' || this.phase === 'elevation' || this.phase === 'power') {
+      this.gaugeValue += this.gaugeDirection * this.gaugeSpeed * delta
+      if (this.gaugeValue >= 100) {
+        this.gaugeValue = 100
+        this.gaugeDirection = -1
+      } else if (this.gaugeValue <= 0) {
+        this.gaugeValue = 0
+        this.gaugeDirection = 1
       }
-      if (this.powerMeterFill) {
-        this.powerMeterFill.style.width = `${this.power}%`
-      }
+      this.update3DGauges()
+      this.updateTrajectory()
     }
 
     // Check if object has landed
@@ -109,20 +133,435 @@ export class GameScene extends BaseScene {
     }
   }
 
+  private updateGaugePosition() {
+    if (!this.gaugeContainer) return
+
+    const camera = this.game.camera
+
+    // Position gauge in front of camera, slightly below center
+    const distance = 5 // Distance from camera
+    const offsetY = -1.5 // Below center of view
+
+    // Get camera's forward direction
+    const forward = new THREE.Vector3(0, 0, -1)
+    forward.applyQuaternion(camera.quaternion)
+
+    // Position gauge in front of camera
+    this.gaugeContainer.position.copy(camera.position)
+    this.gaugeContainer.position.add(forward.multiplyScalar(distance))
+    this.gaugeContainer.position.y += offsetY
+
+    // Make gauge face the camera (billboard)
+    this.gaugeContainer.quaternion.copy(camera.quaternion)
+  }
+
+  private createTrajectoryLine() {
+    // Create trajectory line with initial points
+    const numPoints = 50
+    this.trajectoryPoints = []
+    for (let i = 0; i < numPoints; i++) {
+      this.trajectoryPoints.push(new THREE.Vector3())
+    }
+
+    const geometry = new THREE.BufferGeometry().setFromPoints(this.trajectoryPoints)
+    const material = new THREE.LineDashedMaterial({
+      color: 0x00ffff,
+      dashSize: 0.3,
+      gapSize: 0.15,
+      transparent: true,
+      opacity: 0.8
+    })
+
+    this.trajectoryLine = new THREE.Line(geometry, material)
+    this.trajectoryLine.computeLineDistances()
+    this.scene.add(this.trajectoryLine)
+
+    // Create target marker ring on the ground to show where dai is
+    const ringGeometry = new THREE.RingGeometry(1.8, 2.2, 32)
+    const ringMaterial = new THREE.MeshBasicMaterial({
+      color: 0xffd700,
+      transparent: true,
+      opacity: 0.5,
+      side: THREE.DoubleSide
+    })
+    this.targetMarker = new THREE.Mesh(ringGeometry, ringMaterial)
+    this.targetMarker.rotation.x = -Math.PI / 2
+    this.targetMarker.position.set(0, -1.45, 0)
+    this.scene.add(this.targetMarker)
+  }
+
+  private updateTrajectory() {
+    if (!this.trajectoryLine) return
+
+    // Calculate trajectory based on current angle and power
+    const powerMultiplier = 0.12 + (this.power / 100) * 0.15
+    const hRad = (this.angleH * Math.PI) / 180
+    const vRad = (this.angleV * Math.PI) / 180
+    const speed = 8 + powerMultiplier * 20
+
+    // Initial velocity
+    const vx = Math.sin(hRad) * speed * Math.cos(vRad)
+    const vy = Math.sin(vRad) * speed
+    const vz = -Math.cos(hRad) * speed * Math.cos(vRad)
+
+    // Gravity
+    const gravity = -15
+
+    // Calculate trajectory points
+    const dt = 0.05 // Time step
+    let x = this.launchPosition.x
+    let y = this.launchPosition.y
+    let z = this.launchPosition.z
+    let velY = vy
+
+    for (let i = 0; i < this.trajectoryPoints.length; i++) {
+      this.trajectoryPoints[i].set(x, y, z)
+
+      // Update position
+      x += vx * dt
+      y += velY * dt
+      z += vz * dt
+      velY += gravity * dt
+
+      // Stop if below ground
+      if (y < -2) {
+        // Fill remaining points with last valid position
+        for (let j = i + 1; j < this.trajectoryPoints.length; j++) {
+          this.trajectoryPoints[j].set(x, -2, z)
+        }
+        break
+      }
+    }
+
+    // Update line geometry
+    const positions = this.trajectoryLine.geometry.attributes.position
+    for (let i = 0; i < this.trajectoryPoints.length; i++) {
+      positions.setXYZ(i, this.trajectoryPoints[i].x, this.trajectoryPoints[i].y, this.trajectoryPoints[i].z)
+    }
+    positions.needsUpdate = true
+    this.trajectoryLine.computeLineDistances()
+
+    // Update line color based on where it lands relative to target
+    const landingX = this.trajectoryPoints[this.trajectoryPoints.length - 1].x
+    const landingZ = this.trajectoryPoints[this.trajectoryPoints.length - 1].z
+    const distFromTarget = Math.sqrt(landingX ** 2 + landingZ ** 2)
+
+    const lineMaterial = this.trajectoryLine.material as THREE.LineDashedMaterial
+    if (distFromTarget < 2) {
+      lineMaterial.color.setHex(0x00ff00) // Green - good aim
+    } else if (distFromTarget < 4) {
+      lineMaterial.color.setHex(0xffff00) // Yellow - close
+    } else {
+      lineMaterial.color.setHex(0x00ffff) // Cyan - default
+    }
+  }
+
+  private setupCamera() {
+    // Position camera behind and above the launch point, looking at the target
+    // This allows seeing both launch position and dai (target)
+    const camera = this.game.camera
+
+    // Camera positioned behind launch point, elevated, looking at target area
+    camera.position.set(0, 5, 18)
+    camera.lookAt(0, 0, 0) // Look at center (dai position)
+  }
+
+  private create3DGauges() {
+    this.gaugeContainer = new THREE.Group()
+    // Position will be updated every frame to follow camera
+    this.scene.add(this.gaugeContainer)
+
+    // Scale down for appropriate size in view
+    const gaugeScale = 0.3
+
+    // Create direction gauge (horizontal)
+    this.directionGauge = this.createHorizontalGauge()
+    this.directionGauge.group.scale.setScalar(gaugeScale)
+    this.directionGauge.group.position.set(0, 0, 0)
+    this.gaugeContainer.add(this.directionGauge.group)
+
+    // Create elevation gauge (vertical)
+    this.elevationGauge = this.createVerticalGauge()
+    this.elevationGauge.group.scale.setScalar(gaugeScale)
+    this.elevationGauge.group.position.set(0, 0, 0)
+    this.elevationGauge.group.visible = false
+    this.gaugeContainer.add(this.elevationGauge.group)
+
+    // Create power gauge (vertical with fill)
+    this.powerGauge = this.createPowerGauge()
+    this.powerGauge.group.scale.setScalar(gaugeScale)
+    this.powerGauge.group.position.set(0, 0, 0)
+    this.powerGauge.group.visible = false
+    this.gaugeContainer.add(this.powerGauge.group)
+  }
+
+  private createHorizontalGauge(): GaugeGroup {
+    const group = new THREE.Group()
+
+    // Track (background bar) - centered at origin
+    const trackGeometry = new THREE.BoxGeometry(6, 0.4, 0.15)
+    const trackMaterial = new THREE.MeshBasicMaterial({
+      color: 0x222222,
+      transparent: true,
+      opacity: 0.9
+    })
+    const track = new THREE.Mesh(trackGeometry, trackMaterial)
+    group.add(track)
+
+    // Track border (outline)
+    const borderGeometry = new THREE.BoxGeometry(6.2, 0.6, 0.05)
+    const borderMaterial = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.8
+    })
+    const border = new THREE.Mesh(borderGeometry, borderMaterial)
+    border.position.z = -0.05
+    group.add(border)
+
+    // Center mark (target indicator)
+    const centerMarkGeometry = new THREE.BoxGeometry(0.15, 0.8, 0.2)
+    const centerMarkMaterial = new THREE.MeshBasicMaterial({ color: 0xffd700 })
+    const centerMark = new THREE.Mesh(centerMarkGeometry, centerMarkMaterial)
+    centerMark.position.z = 0.05
+    group.add(centerMark)
+
+    // Indicator (moving marker) - starts at center
+    const indicatorGeometry = new THREE.BoxGeometry(0.2, 0.7, 0.25)
+    const indicatorMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 })
+    const indicator = new THREE.Mesh(indicatorGeometry, indicatorMaterial)
+    indicator.position.z = 0.1
+
+    // Glow effect on indicator
+    const glowGeometry = new THREE.BoxGeometry(0.35, 0.85, 0.05)
+    const glowMaterial = new THREE.MeshBasicMaterial({
+      color: 0xff4444,
+      transparent: true,
+      opacity: 0.5
+    })
+    const glow = new THREE.Mesh(glowGeometry, glowMaterial)
+    glow.position.z = 0.15
+    indicator.add(glow)
+
+    group.add(indicator)
+
+    // Label above the gauge
+    const labelSprite = this.createTextSprite('◀ 方向 ▶', 0.5)
+    labelSprite.position.set(0, 0.8, 0)
+    group.add(labelSprite)
+
+    return { group, track, indicator, centerMark }
+  }
+
+  private createVerticalGauge(): GaugeGroup {
+    const group = new THREE.Group()
+
+    // Track (background bar) - centered at origin
+    const trackGeometry = new THREE.BoxGeometry(0.5, 4, 0.15)
+    const trackMaterial = new THREE.MeshBasicMaterial({
+      color: 0x222222,
+      transparent: true,
+      opacity: 0.9
+    })
+    const track = new THREE.Mesh(trackGeometry, trackMaterial)
+    group.add(track)
+
+    // Track border
+    const borderGeometry = new THREE.BoxGeometry(0.7, 4.2, 0.05)
+    const borderMaterial = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.8
+    })
+    const border = new THREE.Mesh(borderGeometry, borderMaterial)
+    border.position.z = -0.05
+    group.add(border)
+
+    // Center mark (target indicator)
+    const centerMarkGeometry = new THREE.BoxGeometry(0.9, 0.15, 0.2)
+    const centerMarkMaterial = new THREE.MeshBasicMaterial({ color: 0xffd700 })
+    const centerMark = new THREE.Mesh(centerMarkGeometry, centerMarkMaterial)
+    centerMark.position.z = 0.05
+    group.add(centerMark)
+
+    // Indicator (moving marker)
+    const indicatorGeometry = new THREE.BoxGeometry(0.8, 0.2, 0.25)
+    const indicatorMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 })
+    const indicator = new THREE.Mesh(indicatorGeometry, indicatorMaterial)
+    indicator.position.z = 0.1
+
+    // Glow effect
+    const glowGeometry = new THREE.BoxGeometry(0.95, 0.35, 0.05)
+    const glowMaterial = new THREE.MeshBasicMaterial({
+      color: 0xff4444,
+      transparent: true,
+      opacity: 0.5
+    })
+    const glow = new THREE.Mesh(glowGeometry, glowMaterial)
+    glow.position.z = 0.15
+    indicator.add(glow)
+
+    group.add(indicator)
+
+    // Label above the gauge
+    const labelSprite = this.createTextSprite('▲ 角度 ▲', 0.5)
+    labelSprite.position.set(0, 2.5, 0)
+    group.add(labelSprite)
+
+    return { group, track, indicator, centerMark }
+  }
+
+  private createPowerGauge(): GaugeGroup {
+    const group = new THREE.Group()
+
+    // Track (background)
+    const trackGeometry = new THREE.BoxGeometry(0.6, 4, 0.15)
+    const trackMaterial = new THREE.MeshBasicMaterial({
+      color: 0x222222,
+      transparent: true,
+      opacity: 0.9
+    })
+    const track = new THREE.Mesh(trackGeometry, trackMaterial)
+    group.add(track)
+
+    // Track border
+    const borderGeometry = new THREE.BoxGeometry(0.8, 4.2, 0.05)
+    const borderMaterial = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.8
+    })
+    const border = new THREE.Mesh(borderGeometry, borderMaterial)
+    border.position.z = -0.05
+    group.add(border)
+
+    // Gradient background segments for power visualization
+    const segments = 20
+    const segmentHeight = 4 / segments
+    for (let i = 0; i < segments; i++) {
+      const t = i / segments
+      const segGeometry = new THREE.BoxGeometry(0.5, segmentHeight * 0.85, 0.1)
+
+      // Green to yellow to red gradient
+      const color = new THREE.Color()
+      if (t < 0.5) {
+        color.setHSL(0.33 - t * 0.33, 1, 0.5) // Green to Yellow
+      } else {
+        color.setHSL(0.17 - (t - 0.5) * 0.34, 1, 0.5) // Yellow to Red
+      }
+
+      const segMaterial = new THREE.MeshBasicMaterial({
+        color,
+        transparent: true,
+        opacity: 0.25
+      })
+      const segment = new THREE.Mesh(segGeometry, segMaterial)
+      segment.position.y = -2 + segmentHeight * 0.5 + i * segmentHeight
+      segment.position.z = 0.02
+      group.add(segment)
+    }
+
+    // Fill bar (dynamic height) - pivot at bottom
+    const fillGeometry = new THREE.BoxGeometry(0.5, 1, 0.15)
+    // Move geometry so pivot is at bottom
+    fillGeometry.translate(0, 0.5, 0)
+    const fillMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00 })
+    const fill = new THREE.Mesh(fillGeometry, fillMaterial)
+    fill.position.y = -2 // Start at bottom of gauge
+    fill.position.z = 0.08
+    fill.scale.y = 0.01 // Start with minimal height
+    group.add(fill)
+
+    // Dummy indicator and centerMark for interface compatibility
+    const indicator = new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.01, 0.01))
+    indicator.visible = false
+    group.add(indicator)
+
+    const centerMark = new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.01, 0.01))
+    centerMark.visible = false
+    group.add(centerMark)
+
+    // Label above the gauge
+    const labelSprite = this.createTextSprite('パワー', 0.5)
+    labelSprite.position.set(0, 2.5, 0)
+    group.add(labelSprite)
+
+    return { group, track, indicator, centerMark, fill }
+  }
+
+  private createTextSprite(text: string, size: number): THREE.Sprite {
+    const canvas = document.createElement('canvas')
+    const context = canvas.getContext('2d')!
+    canvas.width = 512
+    canvas.height = 128
+
+    context.fillStyle = 'rgba(0, 0, 0, 0)'
+    context.fillRect(0, 0, canvas.width, canvas.height)
+
+    context.font = 'bold 64px sans-serif'
+    context.fillStyle = '#FFD700'
+    context.textAlign = 'center'
+    context.textBaseline = 'middle'
+    context.strokeStyle = '#000000'
+    context.lineWidth = 4
+    context.strokeText(text, canvas.width / 2, canvas.height / 2)
+    context.fillText(text, canvas.width / 2, canvas.height / 2)
+
+    const texture = new THREE.CanvasTexture(canvas)
+    const material = new THREE.SpriteMaterial({ map: texture, transparent: true })
+    const sprite = new THREE.Sprite(material)
+    sprite.scale.set(size * 4, size, 1)
+
+    return sprite
+  }
+
+  private update3DGauges() {
+    if (this.phase === 'direction' && this.directionGauge) {
+      // Move indicator along horizontal track (-3 to 3)
+      const x = (this.gaugeValue / 100) * 6 - 3
+      this.directionGauge.indicator.position.x = x
+      // Preview angle in real-time
+      this.angleH = (this.gaugeValue - 50) * 1.2
+
+    } else if (this.phase === 'elevation' && this.elevationGauge) {
+      // Move indicator along vertical track (-2 to 2)
+      const y = (this.gaugeValue / 100) * 4 - 2
+      this.elevationGauge.indicator.position.y = y
+      // Preview angle in real-time
+      this.angleV = 15 + this.gaugeValue * 0.6
+
+    } else if (this.phase === 'power' && this.powerGauge && this.powerGauge.fill) {
+      // Scale fill bar from bottom (pivot is at bottom of geometry)
+      const fillHeight = (this.gaugeValue / 100) * 4
+      this.powerGauge.fill.scale.y = Math.max(fillHeight, 0.01)
+
+      // Update fill color based on power level
+      const t = this.gaugeValue / 100
+      const color = new THREE.Color()
+      if (t < 0.5) {
+        color.setHSL(0.33 - t * 0.33, 1, 0.5) // Green to Yellow
+      } else {
+        color.setHSL(0.17 - (t - 0.5) * 0.34, 1, 0.5) // Yellow to Red
+      }
+      ;(this.powerGauge.fill.material as THREE.MeshBasicMaterial).color = color
+    }
+  }
+
   private resetState() {
     this.launchedObjects = []
     this.currentObject = null
     this.currentType = 'base'
-    this.phase = 'aiming'
+    this.phase = 'direction'
     this.angleH = 0
     this.angleV = 45
     this.power = 50
-    this.powerDirection = 1
+    this.gaugeValue = 50
+    this.gaugeDirection = 1
   }
 
   private setupPhysics() {
     this.world = new CANNON.World()
-    this.world.gravity.set(0, -15, 0) // Slightly stronger gravity for "heavier" feel
+    this.world.gravity.set(0, -15, 0)
     this.world.broadphase = new CANNON.NaiveBroadphase()
 
     // Ground
@@ -133,20 +572,19 @@ export class GameScene extends BaseScene {
     this.groundBody.position.set(0, -2, 0)
     this.world.addBody(this.groundBody)
 
-    // Dai (platform for kagamimochi)
+    // Dai (platform)
     const daiShape = new CANNON.Cylinder(1.8, 2, 0.5, 16)
     this.daiBody = new CANNON.Body({ mass: 0, material: new CANNON.Material() })
     this.daiBody.addShape(daiShape)
     this.daiBody.position.set(0, -1.75, 0)
     this.world.addBody(this.daiBody)
 
-    // Add contact material for bounciness
+    // Contact material
     const mochiMaterial = new CANNON.Material('mochi')
     const groundMaterial = new CANNON.Material('ground')
-
     const contactMaterial = new CANNON.ContactMaterial(mochiMaterial, groundMaterial, {
       friction: 0.8,
-      restitution: 0.3 // Some bounce
+      restitution: 0.3
     })
     this.world.addContactMaterial(contactMaterial)
   }
@@ -198,23 +636,18 @@ export class GameScene extends BaseScene {
     this.dai.receiveShadow = true
     this.scene.add(this.dai)
 
-    // Target indicator (subtle glow on dai)
+    // Target glow
     const targetGlow = new THREE.PointLight(0xffd700, 0.5, 5)
     targetGlow.position.set(0, -1, 0)
     this.scene.add(targetGlow)
 
     // Create aim arrow
     this.createAimArrow()
-
-    // Position camera for mobile-friendly view
-    this.game.camera.position.set(0, 6, 15)
-    this.game.camera.lookAt(0, 0, 0)
   }
 
   private createAimArrow() {
     this.aimArrow = new THREE.Group()
 
-    // Arrow body
     const arrowBodyGeometry = new THREE.CylinderGeometry(0.1, 0.1, 2, 8)
     const arrowMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00 })
     const arrowBody = new THREE.Mesh(arrowBodyGeometry, arrowMaterial)
@@ -222,7 +655,6 @@ export class GameScene extends BaseScene {
     arrowBody.position.z = 1
     this.aimArrow.add(arrowBody)
 
-    // Arrow head
     const arrowHeadGeometry = new THREE.ConeGeometry(0.2, 0.5, 8)
     const arrowHead = new THREE.Mesh(arrowHeadGeometry, arrowMaterial)
     arrowHead.rotation.x = Math.PI / 2
@@ -239,7 +671,6 @@ export class GameScene extends BaseScene {
     const hRad = (this.angleH * Math.PI) / 180
     const vRad = (this.angleV * Math.PI) / 180
 
-    // Point arrow in launch direction
     this.aimArrow.rotation.y = -hRad
     this.aimArrow.rotation.x = -vRad
   }
@@ -250,22 +681,13 @@ export class GameScene extends BaseScene {
         <div class="phase-indicator">
           <span id="phaseText">${this.getPhaseText()}</span>
         </div>
-        <div class="angle-indicator">
-          <span id="angleText">角度: H ${this.angleH}° / V ${this.angleV}°</span>
-        </div>
-        <div class="power-meter" style="display: none;">
-          <div class="power-meter-fill"></div>
-        </div>
         <div class="instruction">
-          <span id="instructionText">スワイプで角度調整 / タップで確定</span>
+          <span id="instructionText">タップで方向を決定！</span>
         </div>
       </div>
     `)
 
     this.phaseIndicator = this.ui!.querySelector('#phaseText')
-    this.powerMeter = this.ui!.querySelector('.power-meter')
-    this.powerMeterFill = this.ui!.querySelector('.power-meter-fill')
-    this.angleIndicator = this.ui!.querySelector('#angleText')
     this.instruction = this.ui!.querySelector('#instructionText')
   }
 
@@ -275,191 +697,105 @@ export class GameScene extends BaseScene {
   }
 
   private setupEventListeners() {
-    // Touch events
-    window.addEventListener('touchstart', this.onTouchStart)
-    window.addEventListener('touchmove', this.onTouchMove)
-    window.addEventListener('touchend', this.onTouchEnd)
-
-    // Mouse events for desktop
-    window.addEventListener('mousedown', this.onMouseDown)
-    window.addEventListener('mousemove', this.onMouseMove)
-    window.addEventListener('mouseup', this.onMouseUp)
-
-    // Keyboard for desktop
+    window.addEventListener('touchend', this.onConfirmGauge)
+    window.addEventListener('click', this.onConfirmGauge)
     window.addEventListener('keydown', this.onKeyDown)
   }
 
   private removeEventListeners() {
-    window.removeEventListener('touchstart', this.onTouchStart)
-    window.removeEventListener('touchmove', this.onTouchMove)
-    window.removeEventListener('touchend', this.onTouchEnd)
-    window.removeEventListener('mousedown', this.onMouseDown)
-    window.removeEventListener('mousemove', this.onMouseMove)
-    window.removeEventListener('mouseup', this.onMouseUp)
+    window.removeEventListener('touchend', this.onConfirmGauge)
+    window.removeEventListener('click', this.onConfirmGauge)
     window.removeEventListener('keydown', this.onKeyDown)
   }
 
-  private onTouchStart = (e: TouchEvent) => {
-    if (this.phase !== 'aiming') return
-    this.isTouching = true
-    this.touchStartX = e.touches[0].clientX
-    this.touchStartY = e.touches[0].clientY
-  }
-
-  private onTouchMove = (e: TouchEvent) => {
-    if (!this.isTouching || this.phase !== 'aiming') return
+  private onConfirmGauge = (e: Event) => {
     e.preventDefault()
 
-    const deltaX = e.touches[0].clientX - this.touchStartX
-    const deltaY = e.touches[0].clientY - this.touchStartY
-
-    // Adjust angles based on swipe
-    this.angleH = Math.max(-60, Math.min(60, this.angleH + deltaX * 0.3))
-    this.angleV = Math.max(15, Math.min(75, this.angleV - deltaY * 0.3))
-
-    this.touchStartX = e.touches[0].clientX
-    this.touchStartY = e.touches[0].clientY
-
-    this.updateAngleUI()
-  }
-
-  private onTouchEnd = () => {
-    if (this.isTouching && this.phase === 'aiming') {
-      this.startPowerPhase()
+    if (this.phase === 'direction') {
+      this.confirmDirection()
+    } else if (this.phase === 'elevation') {
+      this.confirmElevation()
+    } else if (this.phase === 'power') {
+      this.confirmPowerAndLaunch()
     }
-    this.isTouching = false
-  }
-
-  private onMouseDown = (e: MouseEvent) => {
-    if (this.phase !== 'aiming') return
-    this.isTouching = true
-    this.touchStartX = e.clientX
-    this.touchStartY = e.clientY
-  }
-
-  private onMouseMove = (e: MouseEvent) => {
-    if (!this.isTouching || this.phase !== 'aiming') return
-
-    const deltaX = e.clientX - this.touchStartX
-    const deltaY = e.clientY - this.touchStartY
-
-    this.angleH = Math.max(-60, Math.min(60, this.angleH + deltaX * 0.3))
-    this.angleV = Math.max(15, Math.min(75, this.angleV - deltaY * 0.3))
-
-    this.touchStartX = e.clientX
-    this.touchStartY = e.clientY
-
-    this.updateAngleUI()
-  }
-
-  private onMouseUp = () => {
-    if (this.isTouching && this.phase === 'aiming') {
-      this.startPowerPhase()
-    }
-    this.isTouching = false
   }
 
   private onKeyDown = (e: KeyboardEvent) => {
-    if (this.phase === 'aiming') {
-      switch (e.key) {
-        case 'ArrowLeft':
-          this.angleH = Math.max(-60, this.angleH - 5)
-          this.updateAngleUI()
-          break
-        case 'ArrowRight':
-          this.angleH = Math.min(60, this.angleH + 5)
-          this.updateAngleUI()
-          break
-        case 'ArrowUp':
-          this.angleV = Math.min(75, this.angleV + 5)
-          this.updateAngleUI()
-          break
-        case 'ArrowDown':
-          this.angleV = Math.max(15, this.angleV - 5)
-          this.updateAngleUI()
-          break
-        case ' ':
-        case 'Enter':
-          this.startPowerPhase()
-          break
-      }
-    } else if (this.phase === 'power') {
-      if (e.key === ' ' || e.key === 'Enter') {
-        this.launch()
-      }
-    }
-  }
-
-  private updateAngleUI() {
-    if (this.angleIndicator) {
-      this.angleIndicator.textContent = `角度: H ${Math.round(this.angleH)}° / V ${Math.round(this.angleV)}°`
-    }
-  }
-
-  private startPowerPhase() {
-    this.phase = 'power'
-    this.power = 0
-    this.powerDirection = 1
-
-    if (this.powerMeter) {
-      this.powerMeter.style.display = 'block'
-    }
-    if (this.instruction) {
-      this.instruction.textContent = 'タップでパワー決定！'
-    }
-    if (this.aimArrow) {
-      this.aimArrow.visible = false
-    }
-
-    // Setup click/touch to launch
-    const launchHandler = () => {
-      if (this.phase === 'power') {
-        this.launch()
-        window.removeEventListener('click', launchHandler)
-        window.removeEventListener('touchend', touchLaunchHandler)
-      }
-    }
-    const touchLaunchHandler = (e: TouchEvent) => {
+    if (e.key === ' ' || e.key === 'Enter') {
       e.preventDefault()
-      if (this.phase === 'power') {
-        this.launch()
-        window.removeEventListener('click', launchHandler)
-        window.removeEventListener('touchend', touchLaunchHandler)
+      if (this.phase === 'direction') {
+        this.confirmDirection()
+      } else if (this.phase === 'elevation') {
+        this.confirmElevation()
+      } else if (this.phase === 'power') {
+        this.confirmPowerAndLaunch()
       }
     }
+  }
 
-    // Small delay to prevent immediate launch
-    setTimeout(() => {
-      window.addEventListener('click', launchHandler)
-      window.addEventListener('touchend', touchLaunchHandler)
-    }, 100)
+  private confirmDirection() {
+    this.angleH = (this.gaugeValue - 50) * 1.2
+    this.game.audioManager.playLand()
+
+    // Switch gauges
+    if (this.directionGauge) this.directionGauge.group.visible = false
+    if (this.elevationGauge) this.elevationGauge.group.visible = true
+
+    this.gaugeValue = 50
+    this.gaugeDirection = 1
+    this.phase = 'elevation'
+
+    if (this.instruction) {
+      this.instruction.textContent = 'タップで角度を決定！'
+    }
+  }
+
+  private confirmElevation() {
+    this.angleV = 15 + this.gaugeValue * 0.6
+    this.game.audioManager.playLand()
+
+    // Switch gauges
+    if (this.elevationGauge) this.elevationGauge.group.visible = false
+    if (this.powerGauge) this.powerGauge.group.visible = true
+
+    this.gaugeValue = 0
+    this.gaugeDirection = 1
+    this.phase = 'power'
+
+    if (this.instruction) {
+      this.instruction.textContent = 'タップでパワーを決定！'
+    }
+  }
+
+  private confirmPowerAndLaunch() {
+    this.power = this.gaugeValue
+    this.launch()
   }
 
   private launch() {
     this.phase = 'flying'
     this.game.audioManager.playLaunch()
 
-    if (this.powerMeter) {
-      this.powerMeter.style.display = 'none'
-    }
+    // Hide all gauges and trajectory
+    if (this.gaugeContainer) this.gaugeContainer.visible = false
+    if (this.aimArrow) this.aimArrow.visible = false
+    if (this.trajectoryLine) this.trajectoryLine.visible = false
+
     if (this.instruction) {
       this.instruction.textContent = '飛んでいます...'
     }
 
-    // Create the object to launch
+    // Create object
     const obj = this.createLaunchObject()
     this.currentObject = obj
     this.launchedObjects.push(obj)
 
-    // Calculate launch velocity
-    // Make it very difficult - small power window for success
-    const powerMultiplier = 0.12 + (this.power / 100) * 0.15 // Very narrow range
+    // Calculate velocity
+    const powerMultiplier = 0.12 + (this.power / 100) * 0.15
     const hRad = (this.angleH * Math.PI) / 180
     const vRad = (this.angleV * Math.PI) / 180
-
     const speed = 8 + powerMultiplier * 20
 
-    // Add some randomness to make it more chaotic (クソゲー factor)
     const randomX = (Math.random() - 0.5) * 2
     const randomZ = (Math.random() - 0.5) * 1
 
@@ -469,14 +805,12 @@ export class GameScene extends BaseScene {
       -Math.cos(hRad) * speed * Math.cos(vRad) + randomZ
     )
 
-    // Add random spin (even more クソゲー)
     obj.body.angularVelocity.set(
       (Math.random() - 0.5) * 5,
       (Math.random() - 0.5) * 5,
       (Math.random() - 0.5) * 5
     )
 
-    // Animate camera to follow
     gsap.to(this.game.camera.position, {
       x: Math.sin(hRad) * 5,
       z: 12 - Math.cos(hRad) * 3,
@@ -547,7 +881,6 @@ export class GameScene extends BaseScene {
       this.instruction.textContent = '着地！'
     }
 
-    // Wait a moment then proceed
     setTimeout(() => {
       this.proceedToNextObject()
     }, 1500)
@@ -559,17 +892,32 @@ export class GameScene extends BaseScene {
     } else if (this.currentType === 'top') {
       this.currentType = 'mikan'
     } else {
-      // All objects launched, calculate score
       this.phase = 'complete'
       this.calculateAndShowResult()
       return
     }
 
     // Reset for next launch
-    this.phase = 'aiming'
+    this.phase = 'direction'
     this.angleH = 0
     this.angleV = 45
     this.power = 50
+    this.gaugeValue = 50
+    this.gaugeDirection = 1
+
+    // Show gauges and trajectory again
+    if (this.gaugeContainer) this.gaugeContainer.visible = true
+    if (this.trajectoryLine) this.trajectoryLine.visible = true
+    if (this.directionGauge) this.directionGauge.group.visible = true
+    if (this.elevationGauge) this.elevationGauge.group.visible = false
+    if (this.powerGauge) {
+      this.powerGauge.group.visible = false
+      // Reset power fill
+      if (this.powerGauge.fill) {
+        this.powerGauge.fill.scale.y = 1
+        this.powerGauge.fill.position.y = -2
+      }
+    }
 
     if (this.aimArrow) {
       this.aimArrow.visible = true
@@ -579,29 +927,24 @@ export class GameScene extends BaseScene {
       this.phaseIndicator.textContent = this.getPhaseText()
     }
     if (this.instruction) {
-      this.instruction.textContent = 'スワイプで角度調整 / タップで確定'
+      this.instruction.textContent = 'タップで方向を決定！'
     }
 
-    // Reset camera
+    // Reset camera to good viewing position
     gsap.to(this.game.camera.position, {
       x: 0,
-      y: 6,
-      z: 15,
+      y: 5,
+      z: 18,
       duration: 0.5
     })
-
-    this.updateAngleUI()
   }
 
   private calculateAndShowResult() {
     const score = this.calculateScore()
-
-    // Transition to result scene
     this.game.sceneManager.switchTo('result', { score })
   }
 
   private calculateScore(): number {
-    // Find positions of all objects
     const positions = this.launchedObjects.map(obj => ({
       type: obj.type,
       x: obj.body.position.x,
@@ -617,7 +960,6 @@ export class GameScene extends BaseScene {
 
     let score = 0
 
-    // Check if base is on dai (center)
     const baseDistFromCenter = Math.sqrt(base.x ** 2 + base.z ** 2)
     if (baseDistFromCenter < 1.5 && base.y > -2 && base.y < 0) {
       score += 30
@@ -625,7 +967,6 @@ export class GameScene extends BaseScene {
       score += 15
     }
 
-    // Check if top is on base
     const topOnBase = Math.sqrt((top.x - base.x) ** 2 + (top.z - base.z) ** 2) < 1.2
     const topAboveBase = top.y > base.y && top.y < base.y + 2
     if (topOnBase && topAboveBase) {
@@ -634,7 +975,6 @@ export class GameScene extends BaseScene {
       score += 15
     }
 
-    // Check if mikan is on top
     const mikanOnTop = Math.sqrt((mikan.x - top.x) ** 2 + (mikan.z - top.z) ** 2) < 0.8
     const mikanAboveTop = mikan.y > top.y && mikan.y < top.y + 1.5
     if (mikanOnTop && mikanAboveTop) {
