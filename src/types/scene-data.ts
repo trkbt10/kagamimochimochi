@@ -23,6 +23,10 @@ export type EndlessResultData = {
   maxHeight: number // 達成した最高高度（メートル）
   mochiCount: number // 積んだ餅の数
   survivalTime: number // 生存時間（秒）
+  mikanSuccess: boolean // みかん成功したか
+  rawScore: number // 生スコア（累乗計算後）
+  displayScore: string // 表示用フォーマット済み
+  effectIntensity: number // 演出強度（0-1）
 }
 
 /**

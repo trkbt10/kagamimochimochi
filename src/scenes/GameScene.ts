@@ -94,6 +94,10 @@ export class GameScene extends BaseScene {
   private gameStartTime = 0
   private isCollapsed = false
 
+  // エンドレスモードのフェーズ管理
+  private endlessPhase: 'stacking' | 'mikan' | 'ending' = 'stacking'
+  private mikanAttempted = false
+
   private aimArrow: THREE.Group | null = null
 
   private dai: THREE.Mesh | null = null
@@ -216,35 +220,100 @@ export class GameScene extends BaseScene {
 
   /**
    * 崩壊を検出（エンドレスモード用）
+   * 飛行中も検出する（他の餅が崩れる場合があるため）
+   * ただし着地直後の短時間はスキップ（安定化待ち）
    */
   private checkCollapse(): void {
-    // 飛行中・着地直後は判定しない
-    if (this.phase === 'flying' || this.phase === 'landed') return
+    // 着地直後は判定しない（安定化待ち）
+    if (this.phase === 'landed') return
     if (!this.mochiManager || this.mochiManager.getCount() === 0) return
 
-    const daiPos = new THREE.Vector3(DAI_POSITION.x, DAI_POSITION.y, DAI_POSITION.z)
-    if (this.mochiManager.detectCollapse(daiPos, 3, -1.5)) {
-      this.onCollapse()
+    // みかんフェーズ中は別判定
+    if (this.endlessPhase === 'mikan') {
+      this.checkMikanResult()
+      return
+    }
+
+    // 台から外れた餅を検出（地面到達・横に落ちた・宙ぶらりん状態）
+    const fallenMochi = this.mochiManager.detectFallenFromDai()
+    if (fallenMochi) {
+      this.transitionToMikanPhase()
     }
   }
 
   /**
-   * 崩壊時の処理（エンドレスモード）
+   * みかんフェーズへ移行
    */
-  private onCollapse(): void {
-    if (this.isCollapsed) return
-    this.isCollapsed = true
+  private transitionToMikanPhase(): void {
+    this.endlessPhase = 'mikan'
 
     this.game.audioManager.playFail()
 
-    // ゲームオーバー演出
-    this.effectManager?.showCutIn('崩壊！', this.game.camera, () => {
+    // カットイン表示後、みかん投擲準備
+    this.effectManager?.showCutIn('みかんを載せろ！', this.game.camera, () => {
+      this.currentType = 'mikan'
+      this.resetForNextLaunch()
+      this.createPreviewMesh()
+    })
+  }
+
+  /**
+   * みかんの結果判定
+   */
+  private checkMikanResult(): void {
+    if (!this.mikanAttempted) return
+    if (this.phase === 'flying' || this.phase === 'landed') return
+
+    const mikans = this.mochiManager?.getByType('mikan')
+    const mikan = mikans && mikans.length > 0 ? mikans[0] : null
+    if (!mikan) return
+
+    // みかんが地面に落ちた
+    if (mikan.bottomY <= -1.9) {
+      this.onGameEnd(false)
+      return
+    }
+
+    // みかんが安定して載っている
+    if (mikan.isStacked && mikan.getSpeed() < 0.3) {
+      this.onGameEnd(true)
+    }
+  }
+
+  /**
+   * ゲーム終了処理（エンドレスモード）
+   */
+  private onGameEnd(mikanSuccess: boolean): void {
+    if (this.isCollapsed) return
+    this.isCollapsed = true
+    this.endlessPhase = 'ending'
+
+    const cutInText = mikanSuccess ? '完成！' : 'みかん落下...'
+
+    if (mikanSuccess) {
+      this.game.audioManager.playSuccess()
+    } else {
+      this.game.audioManager.playFail()
+    }
+
+    this.effectManager?.showCutIn(cutInText, this.game.camera, () => {
       const survivalTime = (Date.now() - this.gameStartTime) / 1000
+
+      // ScoreSystemで計算
+      const scoreResult = this.scoreSystem?.calculateEndless(
+        this.mochiManager!,
+        mikanSuccess
+      )
+
       const resultData: EndlessResultData = {
         mode: 'endless',
         maxHeight: Math.round(this.maxStackHeight * 10) / 10,
         mochiCount: this.mochiManager?.getCount() ?? 0,
-        survivalTime: Math.round(survivalTime)
+        survivalTime: Math.round(survivalTime),
+        mikanSuccess,
+        rawScore: scoreResult?.rawScore ?? 0,
+        displayScore: scoreResult?.displayScore ?? '0',
+        effectIntensity: scoreResult?.effectIntensity ?? 0.5
       }
       this.game.sceneManager.switchTo('result', resultData)
     })
@@ -400,6 +469,8 @@ export class GameScene extends BaseScene {
     this.endlessMochiIndex = 0
     this.maxStackHeight = 0
     this.isCollapsed = false
+    this.endlessPhase = 'stacking'
+    this.mikanAttempted = false
   }
 
   private setupPhysics() {
@@ -815,6 +886,17 @@ export class GameScene extends BaseScene {
           duration: 0.4,
           ease: 'power2.out',
           onComplete: () => {
+            // みかんフェーズの場合は特別処理
+            if (this.gameMode === 'endless' && this.endlessPhase === 'mikan') {
+              this.mikanAttempted = true
+              // 3秒後にタイムアウト（成功扱い）
+              setTimeout(() => {
+                if (!this.isCollapsed) {
+                  this.onGameEnd(true)
+                }
+              }, 3000)
+              return
+            }
             this.proceedToNextObject()
           }
         })

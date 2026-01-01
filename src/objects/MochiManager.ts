@@ -159,10 +159,11 @@ export class MochiManager {
 
   // --- Collapse Detection ---
   /**
-   * 崩壊を検出（エンドレスモード用）
+   * 崩壊を検出（エンドレスモード用 - 旧方式）
    * @param daiPosition 台座の位置
    * @param maxDistanceFromDai 台座からの最大許容距離
    * @param minHeight 最小許容高さ
+   * @deprecated detectGroundContactを使用してください
    */
   detectCollapse(
     daiPosition: THREE.Vector3,
@@ -191,6 +192,77 @@ export class MochiManager {
     }
 
     return false
+  }
+
+  /**
+   * 地面到達を検出（エンドレスモード用 - 新方式）
+   * いずれかの餅が地面に接触したかを判定
+   * @param groundY 地面のY座標（デフォルト: -2）
+   * @param tolerance 許容誤差（デフォルト: 0.15）
+   * @returns 地面に到達した餅があればその餅を返す、なければnull
+   * @deprecated detectFallenFromDai を使用してください
+   */
+  detectGroundContact(
+    groundY: number = -2,
+    tolerance: number = 0.15
+  ): MochiObject | null {
+    for (const mochi of this.mochiList) {
+      if (mochi.state === 'flying') continue
+      if (mochi.bottomY <= groundY + tolerance) {
+        return mochi
+      }
+    }
+    return null
+  }
+
+  /**
+   * 台から外れた餅を検出（エンドレスモード用）
+   * - 地面に到達した餅
+   * - 台座から大きく離れた餅
+   * - 宙ぶらりん状態（どこにも載っていない）の餅
+   * @param daiPosition 台座の中心座標
+   * @param options 検出オプション
+   * @returns 台から外れた餅があればその餅を返す、なければnull
+   */
+  detectFallenFromDai(
+    daiPosition: { x: number; z: number } = { x: 0, z: 0 },
+    options: {
+      groundY?: number // 地面Y座標（デフォルト: -2）
+      maxDistFromDai?: number // 台座からの最大許容距離（デフォルト: 2.5）
+      minHeightForDist?: number // 距離判定時の最低高さ（デフォルト: -1.4）
+    } = {}
+  ): MochiObject | null {
+    const {
+      groundY = -2,
+      maxDistFromDai = 2.5,
+      minHeightForDist = -1.4
+    } = options
+
+    for (const mochi of this.mochiList) {
+      // 飛行中はスキップ
+      if (mochi.state === 'flying') continue
+
+      // 条件1: 地面到達
+      if (mochi.bottomY <= groundY + 0.15) {
+        return mochi
+      }
+
+      // 条件2: 台座から大きく離れた（横に落ちた）
+      const distFromDai = Math.sqrt(
+        (mochi.position.x - daiPosition.x) ** 2 +
+          (mochi.position.z - daiPosition.z) ** 2
+      )
+      if (distFromDai > maxDistFromDai && mochi.bottomY < minHeightForDist) {
+        return mochi
+      }
+
+      // 条件3: 宙ぶらりん状態で低い位置にある
+      // (台座にも他の餅にも載っていない & 台座上面より下)
+      if (mochi.state === 'fallen' && mochi.bottomY < -1.5) {
+        return mochi
+      }
+    }
+    return null
   }
 
   // --- Game Mode ---

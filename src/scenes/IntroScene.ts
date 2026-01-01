@@ -10,6 +10,8 @@ import { PhysicsContext, DecorativeMochiGroup } from '../objects'
 import { SkyGradient } from '../effects/SkyGradient'
 import { SceneLighting } from '../effects/SceneLighting'
 import { SnowEffect } from '../effects/SnowEffect'
+import { EffectManager } from '../effects/EffectManager'
+import { GameProgressManager } from '../systems/GameProgressManager'
 import { Kadomatsu } from '../objects/Kadomatsu'
 import { MountainFuji } from '../objects/MountainFuji'
 import { ExtrudedText, TEXT_PATH_DATA } from '../text-builder'
@@ -39,6 +41,7 @@ export class IntroScene extends BaseScene {
   private skyGradient: SkyGradient | null = null
   private sceneLighting: SceneLighting | null = null
   private snowEffect: SnowEffect | null = null
+  private effectManager: EffectManager | null = null
   private kadomatsuLeft: Kadomatsu | null = null
   private kadomatsuRight: Kadomatsu | null = null
   private mountain: MountainFuji | null = null
@@ -60,6 +63,9 @@ export class IntroScene extends BaseScene {
   private hoveredButton: ExtrudedButton3D | null = null
   private activeButton: ExtrudedButton3D | null = null
 
+  // タイトル回転アニメーション用
+  private titleRotationIntervalId: ReturnType<typeof setInterval> | null = null
+
   // イベントハンドラ
   private boundOnPointerMove: (e: PointerEvent) => void
   private boundOnPointerDown: (e: PointerEvent) => void
@@ -77,6 +83,13 @@ export class IntroScene extends BaseScene {
     this.buildUI3D()
     this.setupEventListeners()
     this.registerLayoutListener()
+
+    // エンドレスモードボタンの状態を更新
+    this.updateEndlessButtonState()
+
+    // 解放演出のチェック（カットイン表示）
+    await this.checkAndShowUnlockCutin()
+
     this.animateIntro()
   }
 
@@ -84,16 +97,24 @@ export class IntroScene extends BaseScene {
     this.removeEventListeners()
     this.unregisterLayoutListener()
 
+    // タイトル回転アニメーションのクリーンアップ
+    if (this.titleRotationIntervalId !== null) {
+      clearInterval(this.titleRotationIntervalId)
+      this.titleRotationIntervalId = null
+    }
+
     // お正月演出のクリーンアップ
     this.skyGradient?.dispose()
     this.sceneLighting?.dispose()
     this.snowEffect?.dispose()
+    this.effectManager?.dispose()
     this.kadomatsuLeft?.dispose()
     this.kadomatsuRight?.dispose()
     this.mountain?.dispose()
     this.skyGradient = null
     this.sceneLighting = null
     this.snowEffect = null
+    this.effectManager = null
     this.kadomatsuLeft = null
     this.kadomatsuRight = null
     this.mountain = null
@@ -152,6 +173,9 @@ export class IntroScene extends BaseScene {
     // ライティング設定（共通クラス使用）
     this.sceneLighting = new SceneLighting('intro')
     this.sceneLighting.addToScene(this.scene)
+
+    // エフェクトマネージャー（カットイン用）
+    this.effectManager = new EffectManager(this.scene)
 
     // 雪エフェクト
     this.snowEffect = new SnowEffect()
@@ -321,6 +345,7 @@ export class IntroScene extends BaseScene {
     })
 
     // エンドレスモードボタン（赤ボタン・多重縁取り）
+    // 初期状態は非表示（通常モードで100点達成後に解放）
     this.endlessModeButton = new ExtrudedButton3D({
       textKey: 'エンドレス',
       width: 3.2,
@@ -344,6 +369,8 @@ export class IntroScene extends BaseScene {
         await this.startGame('endless')
       }
     })
+    // 初期状態で非表示
+    this.endlessModeButton.visible = false
 
     // 各要素の高さを取得（3Dテキストはスケール × SVG高さで推定）
     const titleHeight = this.titleContainer ? 1.3 : 0 // 推定値
@@ -512,10 +539,78 @@ export class IntroScene extends BaseScene {
   private getInteractiveButtons(): ExtrudedButton3D[] {
     const buttons: ExtrudedButton3D[] = []
 
-    if (this.normalModeButton) buttons.push(this.normalModeButton)
-    if (this.endlessModeButton) buttons.push(this.endlessModeButton)
+    if (this.normalModeButton && this.normalModeButton.visible) {
+      buttons.push(this.normalModeButton)
+    }
+    if (this.endlessModeButton && this.endlessModeButton.visible) {
+      buttons.push(this.endlessModeButton)
+    }
 
     return buttons
+  }
+
+  /**
+   * エンドレスモードボタンの表示/非表示を更新
+   */
+  private updateEndlessButtonState(): void {
+    const progressManager = GameProgressManager.getInstance()
+    const isUnlocked = progressManager.isEndlessUnlocked()
+
+    // URLパラメータで一時的に有効化（?endless_enabled=true）
+    const urlParams = new URLSearchParams(window.location.search)
+    const isEnabledByUrl = urlParams.get('endless_enabled') === 'true'
+
+    if (this.endlessModeButton) {
+      this.endlessModeButton.visible = isUnlocked || isEnabledByUrl
+    }
+  }
+
+  /**
+   * 解放演出のチェックと表示
+   */
+  private async checkAndShowUnlockCutin(): Promise<void> {
+    const progressManager = GameProgressManager.getInstance()
+
+    // 解放済み かつ カットイン未表示 の場合のみ表示
+    if (
+      progressManager.isEndlessUnlocked() &&
+      !progressManager.isUnlockCutinShown()
+    ) {
+      // カットインを表示済みにマーク
+      progressManager.markUnlockCutinShown()
+
+      // カットイン表示（Promiseでラップ）
+      await new Promise<void>((resolve) => {
+        this.effectManager?.showCutIn(
+          'エンドレス解放！',
+          this.game.camera,
+          () => {
+            // カットイン完了後、ボタンを有効化するアニメーション
+            this.animateEndlessButtonEnable()
+            resolve()
+          }
+        )
+      })
+    }
+  }
+
+  /**
+   * エンドレスボタン出現のアニメーション
+   */
+  private animateEndlessButtonEnable(): void {
+    if (!this.endlessModeButton) return
+
+    // 表示してスケールアニメーション
+    this.endlessModeButton.visible = true
+    this.endlessModeButton.scale.set(0, 0, 0)
+
+    gsap.to(this.endlessModeButton.scale, {
+      x: 1,
+      y: 1,
+      z: 1,
+      duration: 0.5,
+      ease: 'elastic.out(1, 0.5)'
+    })
   }
 
   /**
@@ -623,5 +718,44 @@ export class IntroScene extends BaseScene {
       }
       setTimeout(pulseAnimation, 1700)
     }
+
+    // 15秒ごとにタイトル→サブタイトルの順で横回転アニメーション
+    this.startTitleRotationLoop()
+  }
+
+  /**
+   * タイトルとサブタイトルの回転アニメーションを定期的に実行
+   */
+  private startTitleRotationLoop() {
+    const INTERVAL_SEC = 15
+    const ROTATION_DURATION = 0.8
+    const DELAY_BETWEEN = 0.3 // タイトル回転後、サブタイトル回転開始までの遅延
+
+    const doRotation = () => {
+      // タイトルを360度回転
+      if (this.titleContainer) {
+        gsap.to(this.titleContainer.rotation, {
+          y: this.titleContainer.rotation.y + Math.PI * 2,
+          duration: ROTATION_DURATION,
+          ease: 'power2.inOut'
+        })
+      }
+
+      // サブタイトルを少し遅れて360度回転
+      if (this.titleSubContainer) {
+        gsap.to(this.titleSubContainer.rotation, {
+          y: this.titleSubContainer.rotation.y + Math.PI * 2,
+          duration: ROTATION_DURATION,
+          ease: 'power2.inOut',
+          delay: ROTATION_DURATION + DELAY_BETWEEN
+        })
+      }
+    }
+
+    // 初回は即座に実行
+    doRotation()
+
+    // その後は15秒ごとに繰り返し
+    this.titleRotationIntervalId = setInterval(doRotation, INTERVAL_SEC * 1000)
   }
 }

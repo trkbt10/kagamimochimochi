@@ -15,6 +15,7 @@ import { SnowEffect } from '../effects/SnowEffect'
 import { MountainFuji } from '../objects/MountainFuji'
 import type { GameMode } from '../types/game-mode'
 import type { NormalResultData, EndlessResultData, GameToResultData } from '../types/scene-data'
+import { GameProgressManager } from '../systems/GameProgressManager'
 
 type ScoreTier = 'perfect' | 'excellent' | 'good' | 'average' | 'poor' | 'fail'
 
@@ -152,6 +153,12 @@ export class ResultScene extends BaseScene {
 
     if (this.gameMode === 'normal') {
       this.score = (data as NormalResultData)?.score ?? 0
+
+      // 通常モードで100点達成時にエンドレスモードを解放
+      if (this.score >= 100) {
+        const progressManager = GameProgressManager.getInstance()
+        progressManager.unlockEndless()
+      }
     } else {
       // エンドレスモードでは高さをスコア的に表示
       const endlessData = data as EndlessResultData
@@ -338,7 +345,7 @@ export class ResultScene extends BaseScene {
 
   private buildUI3D() {
     this.uiGroup = new THREE.Group()
-    this.uiGroup.position.set(0, 4, 4)
+    this.uiGroup.position.set(0, 2.5, 4)
     this.scene.add(this.uiGroup)
 
     const rating = this.getRating()
@@ -371,7 +378,7 @@ export class ResultScene extends BaseScene {
         this.shareToTwitter()
       }
     })
-    this.shareButton.position.set(0, -2.0, 0)
+    this.shareButton.position.set(0, -1.4, 0)
     this.uiGroup!.add(this.shareButton)
 
     // タイトルに戻るボタン（金ボタン・多重縁取り）
@@ -389,7 +396,7 @@ export class ResultScene extends BaseScene {
         this.game.sceneManager.switchTo('intro')
       }
     })
-    this.backButton.position.set(0, -3.2, 0)
+    this.backButton.position.set(0, -2.5, 0)
     this.uiGroup!.add(this.backButton)
   }
 
@@ -404,7 +411,7 @@ export class ResultScene extends BaseScene {
       fontSize: 80,
       color: '#ffffff'
     })
-    this.ratingSprite.position.set(0, 0.2, 0)
+    this.ratingSprite.position.set(0, 0.3, 0)
     this.ratingSprite.scale.set(0, 0, 0)
     this.uiGroup!.add(this.ratingSprite)
 
@@ -416,7 +423,7 @@ export class ResultScene extends BaseScene {
       shadowColor: 'rgba(0,0,0,0.8)',
       shadowBlur: 4
     })
-    this.ratingTextSprite.position.set(0, -0.8, 0)
+    this.ratingTextSprite.position.set(0, -0.3, 0)
     this.ratingTextSprite.material.opacity = 0
     this.uiGroup!.add(this.ratingTextSprite)
   }
@@ -428,12 +435,16 @@ export class ResultScene extends BaseScene {
   private buildEndlessUI(rating: { emoji: string; text: string }) {
     const endlessData = this.resultData as EndlessResultData
 
-    // 統計情報（餅数・時間）
-    const statsText = `餅: ${endlessData?.mochiCount ?? 0}個 / ${endlessData?.survivalTime ?? 0}秒`
+    // みかん成功/失敗ステータス
+    const mikanStatus = endlessData?.mikanSuccess ? '🍊 完成！' : '🍊 みかん落下...'
+    const mikanColor = endlessData?.mikanSuccess ? '#FFD700' : '#FF6B6B'
+
+    // 統計情報（餅数・時間・みかん）
+    const statsText = `餅: ${endlessData?.mochiCount ?? 0}個 / ${endlessData?.survivalTime ?? 0}秒 / ${mikanStatus}`
     this.endlessStatsSprite = createTextSprite({
       text: statsText,
-      fontSize: 36,
-      color: '#ffffff',
+      fontSize: 32,
+      color: endlessData?.mikanSuccess ? '#ffffff' : mikanColor,
       shadowColor: 'rgba(0,0,0,0.8)',
       shadowBlur: 4
     })
@@ -446,7 +457,7 @@ export class ResultScene extends BaseScene {
       fontSize: 70,
       color: '#ffffff'
     })
-    this.ratingSprite.position.set(0, -0.1, 0)
+    this.ratingSprite.position.set(0, 0.3, 0)
     this.ratingSprite.scale.set(0, 0, 0)
     this.uiGroup!.add(this.ratingSprite)
 
@@ -458,7 +469,7 @@ export class ResultScene extends BaseScene {
       shadowColor: 'rgba(0,0,0,0.8)',
       shadowBlur: 4
     })
-    this.ratingTextSprite.position.set(0, -1.0, 0)
+    this.ratingTextSprite.position.set(0, -0.3, 0)
     this.ratingTextSprite.material.opacity = 0
     this.uiGroup!.add(this.ratingTextSprite)
   }
@@ -576,10 +587,21 @@ export class ResultScene extends BaseScene {
   private async playResultAnimation() {
     // ド派手演出を開始
     const tier = this.getResultTier()
-    const label = this.gameMode === 'endless' ? 'MAX HEIGHT' : 'YOUR SCORE'
-    const displayScore = this.gameMode === 'endless'
-      ? Math.round((this.resultData as EndlessResultData)?.maxHeight ?? 0)
-      : this.score
+    const label = this.gameMode === 'endless' ? 'SCORE' : 'YOUR SCORE'
+
+    // エンドレスモードの場合はフォーマット済みスコアと演出強度を使用
+    let displayScoreValue: number
+    let displayScoreText: string | undefined
+    let effectIntensity: number | undefined
+
+    if (this.gameMode === 'endless') {
+      const endlessData = this.resultData as EndlessResultData
+      displayScoreValue = Math.round(endlessData?.rawScore ?? 0)
+      displayScoreText = endlessData?.displayScore
+      effectIntensity = endlessData?.effectIntensity
+    } else {
+      displayScoreValue = this.score
+    }
 
     this.scoreRevealOrchestrator = new ScoreRevealOrchestrator(
       this.scene,
@@ -588,9 +610,11 @@ export class ResultScene extends BaseScene {
       this.game.cameraEffects ?? null,
       {
         tier,
-        score: displayScore,
+        score: displayScoreValue,
         label,
         gameMode: this.gameMode,
+        displayScore: displayScoreText,
+        effectIntensity,
       }
     )
 

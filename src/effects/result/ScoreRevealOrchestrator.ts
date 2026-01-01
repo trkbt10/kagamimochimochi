@@ -15,6 +15,8 @@ export type ScoreRevealConfig = {
   score: number
   label: string // "YOUR SCORE" または "MAX HEIGHT" など
   gameMode: 'normal' | 'endless'
+  effectIntensity?: number // 0-1の演出強度（エンドレスモード用）
+  displayScore?: string // フォーマット済み表示スコア（エンドレスモード用）
 }
 
 /**
@@ -175,7 +177,13 @@ export class ScoreRevealOrchestrator {
     this.cameraController = cameraController
     this.cameraEffects = cameraEffects
     this.config = config
-    this.tierConfig = TIER_EFFECT_CONFIGS[config.tier]
+
+    // ティアコンフィグを取得し、エンドレスモードの場合は演出強度で調整
+    const baseTierConfig = TIER_EFFECT_CONFIGS[config.tier]
+    this.tierConfig =
+      config.gameMode === 'endless' && config.effectIntensity !== undefined
+        ? this.adjustTierConfigByIntensity(baseTierConfig, config.effectIntensity)
+        : baseTierConfig
 
     // コンテナ作成
     this.container = new THREE.Group()
@@ -186,7 +194,7 @@ export class ScoreRevealOrchestrator {
     this.scene.add(this.container)
 
     // 初期位置
-    this.container.position.set(0, 3, 0)
+    this.container.position.set(0, 5.0, 0)
 
     // セットアップ
     this.setupComponents()
@@ -223,17 +231,21 @@ export class ScoreRevealOrchestrator {
     this.labelSequencer = new CharacterSequencer(this.config.label, labelOptions)
     const labelGroup = this.labelSequencer.getGroup()
     labelGroup.scale.setScalar(0.008)
-    labelGroup.position.y = 1.8
+    labelGroup.position.y = 1.5
     this.labelGroup.add(labelGroup)
 
     // スコア数値（メイン・派手に）
-    const scoreText = this.config.gameMode === 'endless'
-      ? `${this.config.score}m`
-      : `${this.config.score}点`
+    let scoreText: string
+    if (this.config.gameMode === 'endless') {
+      // エンドレスモードではフォーマット済みスコアを使用
+      scoreText = this.config.displayScore ?? `${this.config.score}m`
+    } else {
+      scoreText = `${this.config.score}点`
+    }
     this.scoreSequencer = new CharacterSequencer(scoreText, scoreOptions)
     const scoreGroup = this.scoreSequencer.getGroup()
     scoreGroup.scale.setScalar(0.025)
-    scoreGroup.position.y = 0
+    scoreGroup.position.y = -1.0
     this.scoreGroup.add(scoreGroup)
 
     // ゴッドレイ（高スコア時のみ）
@@ -300,8 +312,8 @@ export class ScoreRevealOrchestrator {
     const tl = gsap.timeline()
 
     // カメラをスコアに接近
-    const targetPosition = new THREE.Vector3(0, 4, 6)
-    const targetLookAt = new THREE.Vector3(0, 3, 0)
+    const targetPosition = new THREE.Vector3(0, 5.5, 6)
+    const targetLookAt = new THREE.Vector3(0, 4.5, 0)
 
     tl.add(
       this.cameraController.animateTo(targetPosition, targetLookAt, {
@@ -378,10 +390,12 @@ export class ScoreRevealOrchestrator {
 
     const rotations = this.tierConfig.rotationCount
     const duration = 0.6 + rotations * 0.3
+    // 回転数を整数に丸めて最終的に正面を向くようにする
+    const fullRotations = Math.round(rotations)
 
-    // コンテナ全体を回転
-    tl.to(this.container.rotation, {
-      y: Math.PI * 2 * rotations,
+    // スコア数値のみ回転（ラベルは固定）
+    tl.to(this.scoreGroup.rotation, {
+      y: Math.PI * 2 * fullRotations,
       duration,
       ease: 'power1.inOut',
     })
@@ -402,7 +416,7 @@ export class ScoreRevealOrchestrator {
 
     // カメラを元の位置へ
     const targetPosition = new THREE.Vector3(0, 5, 12)
-    const targetLookAt = new THREE.Vector3(0, 2, 0)
+    const targetLookAt = new THREE.Vector3(0, 3, 0)
 
     tl.add(
       this.cameraController.animateTo(targetPosition, targetLookAt, {
@@ -419,8 +433,8 @@ export class ScoreRevealOrchestrator {
       }, [], 0)
     }
 
-    // 落下アニメーション
-    const landY = 2 + this.tierConfig.landingHeight
+    // 落下アニメーション（落下量を抑えて高い位置に留まる）
+    const landY = 4.5 + this.tierConfig.landingHeight * 0.3
 
     tl.to(this.container.position, {
       y: landY,
@@ -437,10 +451,10 @@ export class ScoreRevealOrchestrator {
   private phaseDustImpact(): gsap.core.Timeline {
     const tl = gsap.timeline()
 
-    // 着地位置
+    // 着地位置（落下量が抑えられているので調整）
     const impactPosition = new THREE.Vector3(
       this.container.position.x,
-      2 + this.tierConfig.landingHeight - 2,
+      4.5 + this.tierConfig.landingHeight * 0.3 - 2,
       this.container.position.z
     )
 
@@ -496,6 +510,36 @@ export class ScoreRevealOrchestrator {
    */
   isFinished(): boolean {
     return this.isComplete
+  }
+
+  /**
+   * 演出強度に基づいてティアパラメータを動的調整
+   * @param baseConfig 基本のティアコンフィグ
+   * @param intensity 演出強度（0-1）
+   * @returns 調整されたティアコンフィグ
+   */
+  private adjustTierConfigByIntensity(
+    baseConfig: TierEffectConfig,
+    intensity: number
+  ): TierEffectConfig {
+    // 演出強度に応じてパラメータを調整
+    // intensity: 0 = 控えめ, 1 = 最大
+    return {
+      ...baseConfig,
+      // 文字の登場間隔を短く（速く）
+      entranceDelay: baseConfig.entranceDelay * (1 - intensity * 0.3),
+      // 回転数を増加
+      rotationCount: baseConfig.rotationCount * (1 + intensity * 0.5),
+      // 落下高さを大きく
+      landingHeight: baseConfig.landingHeight * (1 + intensity * 0.3),
+      // 土煙強度を増加
+      dustIntensity: baseConfig.dustIntensity * (1 + intensity * 0.5),
+      // 振動強度を増加
+      shakeIntensity: baseConfig.shakeIntensity * (1 + intensity * 0.4),
+      // 高強度時はズームラインとモーションブラーを有効化
+      useZoomLines: intensity >= 0.3 ? true : baseConfig.useZoomLines,
+      useMotionBlur: intensity >= 0.2 ? true : baseConfig.useMotionBlur,
+    }
   }
 
   /**

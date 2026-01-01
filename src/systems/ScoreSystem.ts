@@ -15,6 +15,15 @@ export type ScoreResult = {
 }
 
 /**
+ * エンドレスモード専用スコア結果（巨大数・演出強度対応）
+ */
+export type EndlessScoreResult = ScoreResult & {
+  rawScore: number // 計算上の生スコア
+  displayScore: string // 表示用フォーマット済み文字列
+  effectIntensity: number // 演出強度（0-1）
+}
+
+/**
  * 個別スコア内訳
  */
 export type ScoreBreakdown = {
@@ -54,13 +63,23 @@ const CLASSIC_SCORING = {
 } as const
 
 /**
- * エンドレスモードのスコア設定
+ * エンドレスモードのスコア設定（累乗方式）
  */
 const ENDLESS_SCORING = {
-  heightMultiplier: 10, // 高さ1mあたりの点数
-  stackBonus: 5, // 正しくスタックされた餅1つあたりのボーナス
-  perfectStackBonus: 20, // 完璧なスタック（中心に近い）のボーナス
-  centerThreshold: 0.3 // 中心とみなす距離
+  exponent: 2.5, // 累乗指数
+  baseMultiplier: 100, // 基本倍率
+  stackBonusBase: 50, // 1個あたりの基本ボーナス
+  perfectStackMultiplier: 2, // 完璧なスタックの倍率
+  centerThreshold: 0.3, // 中心とみなす距離
+  mikanSuccessMultiplier: 1.5 // みかん成功時の倍率
+} as const
+
+/**
+ * 演出強度計算の設定
+ */
+const EFFECT_INTENSITY_CONFIG = {
+  minScore: 100, // 演出開始スコア
+  maxScore: 1_000_000 // 演出最大スコア
 } as const
 
 /**
@@ -87,7 +106,76 @@ export class ScoreSystem {
   calculate(manager: MochiManager): ScoreResult {
     return this.gameMode === 'normal'
       ? this.calculateClassic(manager)
-      : this.calculateEndless(manager)
+      : this.calculateEndlessLegacy(manager)
+  }
+
+  /**
+   * エンドレスモード用スコア計算（みかん成功フラグ対応）
+   */
+  calculateEndless(
+    manager: MochiManager,
+    mikanSuccess: boolean = false
+  ): EndlessScoreResult {
+    const allMochi = manager.getAll()
+    const stacked = manager.getStacked()
+    const breakdown: ScoreBreakdown[] = []
+
+    // 最高到達点（台座上面からの高さ）
+    const rawMaxHeight =
+      allMochi.length > 0 ? Math.max(...allMochi.map((m) => m.topY)) : 0
+    const maxHeight = Math.max(0, rawMaxHeight - DAI_SURFACE_Y)
+
+    // 累乗スコア: height^exponent * baseMultiplier
+    const heightScore =
+      Math.pow(maxHeight, ENDLESS_SCORING.exponent) *
+      ENDLESS_SCORING.baseMultiplier
+
+    // スタックボーナス
+    let stackBonus = 0
+    for (const mochi of stacked) {
+      let bonus = ENDLESS_SCORING.stackBonusBase
+
+      // 中心に近いほど追加ボーナス
+      if (mochi.stackedOn) {
+        const dx = mochi.position.x - mochi.stackedOn.position.x
+        const dz = mochi.position.z - mochi.stackedOn.position.z
+        const offset = Math.sqrt(dx ** 2 + dz ** 2)
+
+        if (offset < ENDLESS_SCORING.centerThreshold) {
+          bonus *= ENDLESS_SCORING.perfectStackMultiplier
+        }
+      }
+
+      stackBonus += bonus
+      breakdown.push({
+        mochiId: mochi.id,
+        type: mochi.config.type,
+        points: bonus,
+        reason: `スタックボーナス`,
+        height: mochi.height
+      })
+    }
+
+    let total = heightScore + stackBonus
+
+    // みかん成功ボーナス
+    if (mikanSuccess) {
+      total *= ENDLESS_SCORING.mikanSuccessMultiplier
+    }
+
+    const displayScore = this.formatBigScore(total)
+    const effectIntensity = this.calculateEffectIntensity(total)
+
+    return {
+      total: Math.round(total),
+      breakdown,
+      maxHeight,
+      stackCount: stacked.length,
+      isPerfect: false,
+      rawScore: total,
+      displayScore,
+      effectIntensity
+    }
   }
 
   /**
@@ -270,54 +358,61 @@ export class ScoreSystem {
   }
 
   /**
-   * エンドレスモード: 高さベースのスコア
+   * エンドレスモード: 高さベースのスコア（レガシー互換用）
+   * @deprecated calculateEndless(manager, mikanSuccess)を使用してください
    */
-  private calculateEndless(manager: MochiManager): ScoreResult {
-    const allMochi = manager.getAll()
-    const stacked = manager.getStacked()
-    const breakdown: ScoreBreakdown[] = []
-
-    // 最高到達点（台座上面からの高さ）
-    const rawMaxHeight =
-      allMochi.length > 0 ? Math.max(...allMochi.map((m) => m.topY)) : 0
-    const maxHeight = Math.max(0, rawMaxHeight - DAI_SURFACE_Y)
-    const heightScore = Math.floor(maxHeight * ENDLESS_SCORING.heightMultiplier)
-
-    // スタックボーナス
-    let stackBonus = 0
-    for (const mochi of stacked) {
-      let bonus = ENDLESS_SCORING.stackBonus
-
-      // 中心に近いほど追加ボーナス
-      if (mochi.stackedOn) {
-        const dx = mochi.position.x - mochi.stackedOn.position.x
-        const dz = mochi.position.z - mochi.stackedOn.position.z
-        const offset = Math.sqrt(dx ** 2 + dz ** 2)
-
-        if (offset < ENDLESS_SCORING.centerThreshold) {
-          bonus += ENDLESS_SCORING.perfectStackBonus
-        }
-      }
-
-      stackBonus += bonus
-      breakdown.push({
-        mochiId: mochi.id,
-        type: mochi.config.type,
-        points: bonus,
-        reason: `スタックボーナス (高さ: ${mochi.height.toFixed(1)}m)`,
-        height: mochi.height
-      })
-    }
-
-    const total = heightScore + stackBonus
-
+  private calculateEndlessLegacy(manager: MochiManager): ScoreResult {
+    const result = this.calculateEndless(manager, false)
     return {
-      total,
-      breakdown,
-      maxHeight,
-      stackCount: stacked.length,
-      isPerfect: false // エンドレスには完璧はない
+      total: result.total,
+      breakdown: result.breakdown,
+      maxHeight: result.maxHeight,
+      stackCount: result.stackCount,
+      isPerfect: result.isPerfect
     }
+  }
+
+  /**
+   * 巨大スコアをフォーマット
+   */
+  private formatBigScore(score: number): string {
+    if (score < 10_000) {
+      return Math.round(score).toLocaleString()
+    }
+    if (score < 1_000_000) {
+      return Math.round(score).toLocaleString()
+    }
+    if (score < 1_000_000_000) {
+      // 百万単位
+      const millions = score / 1_000_000
+      return `${millions.toFixed(2)}M`
+    }
+    if (score < 1_000_000_000_000) {
+      // 十億単位
+      const billions = score / 1_000_000_000
+      return `${billions.toFixed(2)}B`
+    }
+    // それ以上は指数表記
+    return score.toExponential(2)
+  }
+
+  /**
+   * スコアから演出強度を計算（対数圧縮）
+   * @param score 生スコア
+   * @returns 0-1の演出強度
+   */
+  private calculateEffectIntensity(score: number): number {
+    const { minScore, maxScore } = EFFECT_INTENSITY_CONFIG
+
+    if (score <= minScore) return 0
+    if (score >= maxScore) return 1
+
+    // 対数圧縮: (log10(score) - log10(min)) / (log10(max) - log10(min))
+    const logScore = Math.log10(Math.max(score, 1))
+    const logMin = Math.log10(minScore)
+    const logMax = Math.log10(maxScore)
+
+    return (logScore - logMin) / (logMax - logMin)
   }
 
   /**

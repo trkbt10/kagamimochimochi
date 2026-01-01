@@ -36,17 +36,23 @@ export type ExtrudedButton3DOptions = {
   activeColor?: number
   /** クリック時のコールバック */
   onClick?: () => void
+  /** 無効状態か */
+  disabled?: boolean
+  /** 無効時の色 */
+  disabledColor?: number
 }
 
 type ButtonColors = {
   base: number
   hover: number
   active: number
+  disabled: number
 }
 
 type ButtonState = {
   isHovered: boolean
   isPressed: boolean
+  isDisabled: boolean
 }
 
 const DEFAULT_BODY_OPTIONS = {
@@ -101,10 +107,14 @@ function createRoundedRectShape(
   return shape
 }
 
+/** デフォルトの無効色 */
+const DEFAULT_DISABLED_COLOR = 0x666666
+
 /**
  * 状態に基づいてカラーを取得
  */
 function getColorForState(state: ButtonState, colors: ButtonColors): number {
+  if (state.isDisabled) return colors.disabled
   if (state.isPressed) return colors.active
   if (state.isHovered) return colors.hover
   return colors.base
@@ -120,7 +130,7 @@ export class ExtrudedButton3D extends THREE.Group {
   private textContainer: THREE.Group
   private hitMesh: THREE.Mesh
   private colors: ButtonColors
-  private state: ButtonState = { isHovered: false, isPressed: false }
+  private state: ButtonState = { isHovered: false, isPressed: false, isDisabled: false }
   public onClick?: () => void
 
   constructor(options: ExtrudedButton3DOptions) {
@@ -134,13 +144,20 @@ export class ExtrudedButton3D extends THREE.Group {
     const bodySideColor = options.bodySideColor ?? DEFAULT_BODY_OPTIONS.bodySideColor
     const hoverColor = options.hoverColor ?? this.lightenColor(bodyFrontColor, 0.2)
     const activeColor = options.activeColor ?? this.darkenColor(bodyFrontColor, 0.1)
+    const disabledColor = options.disabledColor ?? DEFAULT_DISABLED_COLOR
 
     this.colors = {
       base: bodyFrontColor,
       hover: hoverColor,
       active: activeColor,
+      disabled: disabledColor,
     }
     this.onClick = options.onClick
+
+    // 初期の無効状態を設定
+    if (options.disabled) {
+      this.state = { ...this.state, isDisabled: true }
+    }
 
     // ボタン本体グループ
     this.bodyGroup = new THREE.Group()
@@ -176,6 +193,12 @@ export class ExtrudedButton3D extends THREE.Group {
     this.hitMesh.position.z = depth / 2
     this.hitMesh.userData.button = this
     this.add(this.hitMesh)
+
+    // 初期状態の外観を適用
+    if (this.state.isDisabled) {
+      this.hitMesh.visible = false
+      this.updateAppearance()
+    }
   }
 
   private createButtonBody(
@@ -326,6 +349,7 @@ export class ExtrudedButton3D extends THREE.Group {
   }
 
   setHovered(hovered: boolean): void {
+    if (this.state.isDisabled) return
     if (this.state.isHovered === hovered) return
 
     this.state = { ...this.state, isHovered: hovered }
@@ -333,6 +357,7 @@ export class ExtrudedButton3D extends THREE.Group {
   }
 
   setPressed(pressed: boolean): void {
+    if (this.state.isDisabled) return
     if (this.state.isPressed === pressed) return
 
     const zDelta = pressed ? -0.03 : 0.03
@@ -342,9 +367,23 @@ export class ExtrudedButton3D extends THREE.Group {
     this.updateAppearance()
   }
 
+  setDisabled(disabled: boolean): void {
+    if (this.state.isDisabled === disabled) return
+
+    this.state = { isHovered: false, isPressed: false, isDisabled: disabled }
+    this.updateAppearance()
+
+    // レイキャストから除外
+    this.hitMesh.visible = !disabled
+  }
+
+  isDisabled(): boolean {
+    return this.state.isDisabled
+  }
+
   private updateAppearance(): void {
     const targetColor = getColorForState(this.state, this.colors)
-    const targetEmissive = this.state.isHovered ? 0x222222 : 0x000000
+    const targetEmissive = this.state.isHovered && !this.state.isDisabled ? 0x222222 : 0x000000
 
     for (const mesh of this.bodyMeshes) {
       const materials = Array.isArray(mesh.material)
@@ -356,6 +395,15 @@ export class ExtrudedButton3D extends THREE.Group {
       if (frontMaterial instanceof THREE.MeshStandardMaterial) {
         frontMaterial.color.setHex(targetColor)
         frontMaterial.emissive.setHex(targetEmissive)
+
+        // 無効時は金属感を下げてグレーアウト感を出す
+        if (this.state.isDisabled) {
+          frontMaterial.metalness = 0.1
+          frontMaterial.roughness = 0.8
+        } else {
+          frontMaterial.metalness = 0.3
+          frontMaterial.roughness = 0.4
+        }
       }
     }
   }
