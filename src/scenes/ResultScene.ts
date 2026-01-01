@@ -5,10 +5,11 @@ import type { Game } from '../core/Game'
 import type { LayoutInfo } from '../core/layout'
 import { redistributeParticles, calculateLayoutScale } from '../core/layout'
 import { createTextSprite } from '../ui/text-sprite'
-import { Button3D } from '../ui/button-3d'
+import { ExtrudedButton3D } from '../ui/extruded-button-3d'
 import { createConfettiSystem, updateConfetti } from '../ui/confetti'
 import { PhysicsContext, DecorativeMochiGroup } from '../objects'
-import { GlitterScoreRenderer, SceneLighting } from '../effects'
+import { SceneLighting, ScoreRevealOrchestrator } from '../effects'
+import type { ScoreTier as OrchestratorScoreTier } from '../effects'
 import { SkyGradient } from '../effects/SkyGradient'
 import { SnowEffect } from '../effects/SnowEffect'
 import { MountainFuji } from '../objects/MountainFuji'
@@ -118,29 +119,24 @@ export class ResultScene extends BaseScene {
 
   // UI要素
   private uiGroup: THREE.Group | null = null
-  private scoreLabelSprite: THREE.Sprite | null = null
-  private scoreSprite: THREE.Sprite | null = null
   private ratingSprite: THREE.Sprite | null = null
   private ratingTextSprite: THREE.Sprite | null = null
-  private backButton: Button3D | null = null
-  private shareButton: Button3D | null = null
+  private backButton: ExtrudedButton3D | null = null
+  private shareButton: ExtrudedButton3D | null = null
   private endlessStatsSprite: THREE.Sprite | null = null
 
   // Raycaster
   private raycaster = new THREE.Raycaster()
   private mouse = new THREE.Vector2()
-  private hoveredButton: Button3D | null = null
+  private hoveredButton: ExtrudedButton3D | null = null
 
   // イベントハンドラ
   private boundOnPointerMove: (e: PointerEvent) => void
   private boundOnPointerDown: (e: PointerEvent) => void
   private boundOnPointerUp: (e: PointerEvent) => void
 
-  // アニメーション用
-  private displayedScore = 0
-
-  // ギラギラスコアレンダラー
-  private glitterScoreRenderer: GlitterScoreRenderer | null = null
+  // ド派手スコア演出オーケストレーター
+  private scoreRevealOrchestrator: ScoreRevealOrchestrator | null = null
 
   constructor(game: Game) {
     super(game)
@@ -161,7 +157,6 @@ export class ResultScene extends BaseScene {
       const endlessData = data as EndlessResultData
       this.score = Math.round((endlessData?.maxHeight ?? 0) * 10)
     }
-    this.displayedScore = 0
 
     // カメラ位置を明示的にリセット
     this.resetCamera()
@@ -212,8 +207,10 @@ export class ResultScene extends BaseScene {
   async exit() {
     this.removeEventListeners()
     this.unregisterLayoutListener()
-    this.glitterScoreRenderer?.dispose()
-    this.glitterScoreRenderer = null
+
+    // スコア演出のクリーンアップ
+    this.scoreRevealOrchestrator?.dispose()
+    this.scoreRevealOrchestrator = null
 
     // お正月演出のクリーンアップ
     this.skyGradient?.dispose()
@@ -255,11 +252,8 @@ export class ResultScene extends BaseScene {
       updateConfetti(this.confetti, delta)
     }
 
-    // ギラギラスコアの更新
-    if (this.glitterScoreRenderer) {
-      this.glitterScoreRenderer.update(delta)
-      this.glitterScoreRenderer.getGroup().lookAt(this.game.camera.position)
-    }
+    // スコア演出の更新
+    this.scoreRevealOrchestrator?.update(delta)
 
     // UIをカメラに向ける
     if (this.uiGroup) {
@@ -355,17 +349,24 @@ export class ResultScene extends BaseScene {
       this.buildNormalUI(rating)
     }
 
-    // シェアボタン
-    this.shareButton = new Button3D({
-      text: 'Xでシェア',
+    // シェアボタン（黒ボタン・多重縁取り）
+    this.shareButton = new ExtrudedButton3D({
+      textKey: 'Xでシェア',
       width: 2.8,
       height: 0.7,
-      fontSize: 36,
-      backgroundColor: 0x000000,
+      bodyFrontColor: 0x1a1a1a,
+      bodySideColor: 0x444444,
+      bodyOutlines: [
+        { bevelOffset: 0.08, color: 0x666666 },
+        { bevelOffset: 0.04, color: 0x333333 },
+      ],
+      textOptions: {
+        frontColor: 0xffffff,
+        sideColor: 0xcccccc,
+        outlines: [{ bevelOffset: 1.5, color: 0x000000 }],
+      },
       hoverColor: 0x333333,
       activeColor: 0x111111,
-      borderColor: 0x444444,
-      textColor: '#ffffff',
       onClick: () => {
         this.shareToTwitter()
       }
@@ -373,12 +374,16 @@ export class ResultScene extends BaseScene {
     this.shareButton.position.set(0, -2.0, 0)
     this.uiGroup!.add(this.shareButton)
 
-    // タイトルに戻るボタン
-    this.backButton = new Button3D({
-      text: 'タイトルに戻る',
+    // タイトルに戻るボタン（金ボタン・多重縁取り）
+    this.backButton = new ExtrudedButton3D({
+      textKey: 'タイトルに戻る',
       width: 3.2,
       height: 0.8,
-      fontSize: 40,
+      textOptions: {
+        frontColor: 0x8b0000,
+        sideColor: 0x660000,
+        outlines: [{ bevelOffset: 1.5, color: 0x000000 }],
+      },
       onClick: () => {
         this.game.audioManager.playClick()
         this.game.sceneManager.switchTo('intro')
@@ -390,27 +395,9 @@ export class ResultScene extends BaseScene {
 
   /**
    * 通常モード用UI
+   * スコア表示はScoreRevealOrchestratorが担当
    */
   private buildNormalUI(rating: { emoji: string; text: string }) {
-    // スコアラベル
-    this.scoreLabelSprite = createTextSprite({
-      text: 'YOUR SCORE',
-      fontSize: 44,
-      color: '#ffffff'
-    })
-    this.scoreLabelSprite.position.set(0, 3.0, 0)
-    this.uiGroup!.add(this.scoreLabelSprite)
-
-    // ギラギラスコアレンダラー初期化
-    this.glitterScoreRenderer = new GlitterScoreRenderer(this.scene)
-
-    // 初期スコア表示（0から始まる）
-    this.scoreSprite = this.glitterScoreRenderer.createScoreDisplay(0)
-    this.scoreSprite.position.set(0, 1.7, 0)
-    this.scoreSprite.scale.multiplyScalar(2)
-    this.glitterScoreRenderer.getGroup().position.copy(this.uiGroup!.position)
-    this.glitterScoreRenderer.getGroup().position.y += 1.7
-
     // 評価絵文字
     this.ratingSprite = createTextSprite({
       text: rating.emoji,
@@ -436,26 +423,10 @@ export class ResultScene extends BaseScene {
 
   /**
    * エンドレスモード用UI
+   * スコア表示はScoreRevealOrchestratorが担当
    */
   private buildEndlessUI(rating: { emoji: string; text: string }) {
     const endlessData = this.resultData as EndlessResultData
-
-    // エンドレスモードラベル
-    this.scoreLabelSprite = createTextSprite({
-      text: 'ENDLESS MODE',
-      fontSize: 44,
-      color: '#ff6b6b'
-    })
-    this.scoreLabelSprite.position.set(0, 3.2, 0)
-    this.uiGroup!.add(this.scoreLabelSprite)
-
-    // 最大高度表示用のギラギラスコアレンダラー
-    this.glitterScoreRenderer = new GlitterScoreRenderer(this.scene)
-    this.scoreSprite = this.glitterScoreRenderer.createScoreDisplay(0)
-    this.scoreSprite.position.set(0, 2.0, 0)
-    this.scoreSprite.scale.multiplyScalar(1.5)
-    this.glitterScoreRenderer.getGroup().position.copy(this.uiGroup!.position)
-    this.glitterScoreRenderer.getGroup().position.y += 2.0
 
     // 統計情報（餅数・時間）
     const statsText = `餅: ${endlessData?.mochiCount ?? 0}個 / ${endlessData?.survivalTime ?? 0}秒`
@@ -531,7 +502,7 @@ export class ResultScene extends BaseScene {
     }
 
     if (intersects.length > 0) {
-      const button = intersects[0].object.userData.button as Button3D | undefined
+      const button = intersects[0].object.userData.button as ExtrudedButton3D | undefined
       if (button) {
         button.setHovered(true)
         this.hoveredButton = button
@@ -550,7 +521,7 @@ export class ResultScene extends BaseScene {
     const intersects = this.raycaster.intersectObjects(buttons.map(b => b.getMesh()))
 
     if (intersects.length > 0) {
-      const button = intersects[0].object.userData.button as Button3D | undefined
+      const button = intersects[0].object.userData.button as ExtrudedButton3D | undefined
       if (button) {
         button.setPressed(true)
       }
@@ -568,15 +539,15 @@ export class ResultScene extends BaseScene {
     buttons.forEach(b => b.setPressed(false))
 
     if (intersects.length > 0) {
-      const button = intersects[0].object.userData.button as Button3D | undefined
+      const button = intersects[0].object.userData.button as ExtrudedButton3D | undefined
       if (button && button.onClick) {
         button.onClick()
       }
     }
   }
 
-  private getInteractiveButtons(): Button3D[] {
-    const buttons: Button3D[] = []
+  private getInteractiveButtons(): ExtrudedButton3D[] {
+    const buttons: ExtrudedButton3D[] = []
     if (this.shareButton) buttons.push(this.shareButton)
     if (this.backButton) buttons.push(this.backButton)
     return buttons
@@ -602,39 +573,26 @@ export class ResultScene extends BaseScene {
     window.open(tweetUrl, '_blank')
   }
 
-  private playResultAnimation() {
-    // スコアカウントアップアニメーション
-    const animationObj = { val: 0 }
-    gsap.to(animationObj, {
-      val: this.score,
-      duration: 2,
-      ease: 'power2.out',
-      onUpdate: () => {
-        this.displayedScore = Math.round(animationObj.val)
-        this.updateScoreDisplay()
+  private async playResultAnimation() {
+    // ド派手演出を開始
+    const tier = this.getResultTier()
+    const label = this.gameMode === 'endless' ? 'MAX HEIGHT' : 'YOUR SCORE'
+    const displayScore = this.gameMode === 'endless'
+      ? Math.round((this.resultData as EndlessResultData)?.maxHeight ?? 0)
+      : this.score
+
+    this.scoreRevealOrchestrator = new ScoreRevealOrchestrator(
+      this.scene,
+      this.game.camera,
+      this.game.cameraController,
+      this.game.cameraEffects ?? null,
+      {
+        tier,
+        score: displayScore,
+        label,
+        gameMode: this.gameMode,
       }
-    })
-
-    // 評価の表示アニメーション
-    if (this.ratingSprite) {
-      gsap.to(this.ratingSprite.scale, {
-        x: 1.5,
-        y: 1.5,
-        z: 1,
-        duration: 0.5,
-        delay: 1.5,
-        ease: 'elastic.out(1, 0.5)'
-      })
-    }
-
-    // 評価テキストのフェードイン
-    if (this.ratingTextSprite) {
-      gsap.to(this.ratingTextSprite.material, {
-        opacity: 1,
-        duration: 0.5,
-        delay: 2
-      })
-    }
+    )
 
     // 鏡餅のアニメーション
     if (this.decorativeMochi) {
@@ -643,40 +601,56 @@ export class ResultScene extends BaseScene {
         y: 0,
         z: 0,
         duration: 1,
-        ease: 'elastic.out(1, 0.5)'
+        ease: 'elastic.out(1, 0.5)',
       })
     }
 
-    // カメラアニメーション
-    gsap.from(this.game.camera.position, {
-      z: 20,
-      y: 10,
-      duration: 1.5,
-      ease: 'power2.out'
-    })
+    // 演出完了を待ってから評価表示
+    await this.scoreRevealOrchestrator.play()
 
-    // UIグループのアニメーション
-    if (this.uiGroup) {
-      gsap.from(this.uiGroup.position, {
-        y: 10,
-        duration: 1.2,
+    // 評価の表示アニメーション
+    if (this.ratingSprite) {
+      gsap.to(this.ratingSprite.scale, {
+        x: 1.5,
+        y: 1.5,
+        z: 1,
+        duration: 0.5,
+        ease: 'elastic.out(1, 0.5)',
+      })
+    }
+
+    // 評価テキストのフェードイン
+    if (this.ratingTextSprite) {
+      gsap.to(this.ratingTextSprite.material, {
+        opacity: 1,
+        duration: 0.5,
         delay: 0.3,
-        ease: 'elastic.out(1, 0.7)'
       })
     }
   }
 
-  private updateScoreDisplay() {
-    if (this.glitterScoreRenderer && this.uiGroup) {
-      const newSprite = this.glitterScoreRenderer.updateScore(this.displayedScore)
-      if (newSprite) {
-        this.scoreSprite = newSprite
-        this.scoreSprite.position.set(0, 0, 0)
-        this.scoreSprite.scale.multiplyScalar(2)
-        this.glitterScoreRenderer.getGroup().position.copy(this.uiGroup.position)
-        this.glitterScoreRenderer.getGroup().position.y += 1.7
-      }
+  /**
+   * スコアティアを取得（オーケストレーター用）
+   */
+  private getResultTier(): OrchestratorScoreTier {
+    if (this.gameMode === 'endless') {
+      const endlessData = this.resultData as EndlessResultData
+      const height = endlessData?.maxHeight ?? 0
+
+      if (height >= 5) return 'perfect'
+      if (height >= 3) return 'excellent'
+      if (height >= 2) return 'good'
+      if (height >= 1) return 'average'
+      return 'poor'
     }
+
+    const score = this.score
+    if (score >= 100) return 'perfect'
+    if (score >= 80) return 'excellent'
+    if (score >= 60) return 'good'
+    if (score >= 40) return 'average'
+    if (score >= 20) return 'poor'
+    return 'fail'
   }
 
   private spawnConfetti() {

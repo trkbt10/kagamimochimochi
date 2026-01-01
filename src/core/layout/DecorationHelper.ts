@@ -147,15 +147,15 @@ export function adjustScaleForLayout(
  */
 export function calculateLayoutScale(
   layout: LayoutInfo,
-  minScale: number = 0.8
+  minScale: number = 0.95
 ): number {
   if (layout.mode === 'landscape') {
     return 1
   }
 
-  // 縦画面ではより緩やかなスケーリング
-  // screenAspect 0.5 -> 0.8, 0.7 -> 0.88, 1.0 -> 1.0
-  const adjustedScale = 0.6 + layout.screenAspect * 0.4
+  // 縦画面でも大きく表示（モバイルでの視認性向上）
+  // screenAspect 0.5 -> 0.95, 0.7 -> 0.97, 1.0 -> 1.0
+  const adjustedScale = 0.7 + layout.screenAspect * 0.3
   return Math.max(minScale, adjustedScale)
 }
 

@@ -133,7 +133,7 @@ export class ExtrudedText {
     options: ExtrudeTextOptions,
     outline: OutlineLayer,
     bevelSegments: number,
-    index: number
+    _index: number
   ): THREE.Mesh {
     // アウトライン用にベベルを拡大したジオメトリを生成
     const outlineGeometry = new THREE.ExtrudeGeometry(shape, {
