@@ -6,8 +6,6 @@ import type { LayoutInfo } from '../core/layout'
 import { redistributeParticles, calculateLayoutScale } from '../core/layout'
 import { createTextSprite } from '../ui/text-sprite'
 import { Button3D } from '../ui/button-3d'
-import { Slider3D } from '../ui/slider-3d'
-import { createPanel3D } from '../ui/panel-3d'
 import { PhysicsContext, DecorativeMochiGroup } from '../objects'
 import { SkyGradient } from '../effects/SkyGradient'
 import { SceneLighting } from '../effects/SceneLighting'
@@ -18,20 +16,23 @@ import { ExtrudedText, TEXT_PATH_DATA } from '../text-builder'
 import type { GameMode } from '../types/game-mode'
 
 // タイトル用の金ピカ赤フチどり設定
+// 構成: 金(本体) → 赤(側面ふち) → 黒(外側ふち)
 const TITLE_TEXT_OPTIONS = {
   depth: 10,
   bevelThickness: 2.5,
   bevelSize: 2,
-  bevelSegments: 6,
+  bevelSegments: 15, // 6→15に増加（滑らかなベベル）
   frontColor: 0xffd700, // ゴールド
-  sideColor: 0xcc0000, // 赤フチ
+  sideColor: 0xcc0000, // 赤（内側ふちどり）
+  outlines: [
+    { scale: 1.10, color: 0x000000 }, // 黒（外側ふちどり）
+  ],
 }
 
 export class IntroScene extends BaseScene {
   private particles: THREE.Points | null = null
   private physicsContext: PhysicsContext | null = null
   private decorativeMochi: DecorativeMochiGroup | null = null
-  private settingsOpen = false
 
   // お正月演出
   private skyGradient: SkyGradient | null = null
@@ -51,19 +52,11 @@ export class IntroScene extends BaseScene {
   private instructionSprite: THREE.Sprite | null = null
   private normalModeButton: Button3D | null = null
   private endlessModeButton: Button3D | null = null
-  private settingsButton: Button3D | null = null
-
-  // 設定パネル
-  private settingsGroup: THREE.Group | null = null
-  private settingsPanel: THREE.Mesh | null = null
-  private masterVolumeSlider: Slider3D | null = null
-  private closeSettingsButton: Button3D | null = null
 
   // Raycaster
   private raycaster = new THREE.Raycaster()
   private mouse = new THREE.Vector2()
   private hoveredButton: Button3D | null = null
-  private activeSlider: Slider3D | null = null
   private activeButton: Button3D | null = null
 
   // イベントハンドラ
@@ -143,11 +136,6 @@ export class IntroScene extends BaseScene {
     // UIをカメラに向ける
     if (this.uiGroup) {
       this.uiGroup.lookAt(this.game.camera.position)
-    }
-
-    // 設定パネルもカメラに向ける
-    if (this.settingsGroup && this.settingsOpen) {
-      this.settingsGroup.lookAt(this.game.camera.position)
     }
   }
 
@@ -313,7 +301,6 @@ export class IntroScene extends BaseScene {
 
     // ボタン作成
     const modeButtonHeight = 0.8
-    const settingsButtonHeight = 0.7
 
     // 通常モードボタン
     this.normalModeButton = new Button3D({
@@ -345,22 +332,6 @@ export class IntroScene extends BaseScene {
       }
     })
 
-    this.settingsButton = new Button3D({
-      text: '設定',
-      width: 2.8,
-      height: settingsButtonHeight,
-      fontSize: 40,
-      backgroundColor: 0xdddddd,
-      hoverColor: 0xeeeeee,
-      activeColor: 0xcccccc,
-      borderColor: 0x666666,
-      textColor: '#333333',
-      onClick: () => {
-        this.game.audioManager.playClick()
-        this.toggleSettings()
-      }
-    })
-
     // 各要素の高さを取得（3Dテキストはスケール × SVG高さで推定）
     const titleHeight = this.titleContainer ? 1.3 : 0 // 推定値
     const titleSubHeight = this.titleSubContainer ? 0.85 : 0 // 推定値
@@ -369,8 +340,7 @@ export class IntroScene extends BaseScene {
       titleSub: titleSubHeight,
       subtitle: this.subtitleSprite.scale.y,
       instruction: this.instructionSprite.scale.y,
-      modeBtn: modeButtonHeight,
-      settingsBtn: settingsButtonHeight
+      modeBtn: modeButtonHeight
     }
 
     // gap設定
@@ -379,8 +349,7 @@ export class IntroScene extends BaseScene {
       subToGreeting: 0.3,    // スタッキング - あけおめ間
       greetingToInst: 0.15,  // あけおめ - 説明間
       instToNormal: 0.35,    // 説明 - 通常モードボタン間
-      normalToEndless: 0.2,  // 通常 - エンドレスボタン間
-      endlessToSettings: 0.2 // エンドレス - 設定ボタン間
+      normalToEndless: 0.2   // 通常 - エンドレスボタン間
     }
 
     // 全体の高さを計算
@@ -395,9 +364,7 @@ export class IntroScene extends BaseScene {
       gaps.instToNormal +
       heights.modeBtn +
       gaps.normalToEndless +
-      heights.modeBtn +
-      gaps.endlessToSettings +
-      heights.settingsBtn
+      heights.modeBtn
 
     // 中央揃えの基準点（元のレイアウトの中心付近）
     const centerY = 0.5
@@ -430,10 +397,6 @@ export class IntroScene extends BaseScene {
 
     currentY -= heights.modeBtn / 2
     this.endlessModeButton.position.set(0, currentY, 0)
-    currentY -= heights.modeBtn / 2 + gaps.endlessToSettings
-
-    currentY -= heights.settingsBtn / 2
-    this.settingsButton.position.set(0, currentY, 0)
 
     // UIグループに追加
     if (this.titleContainer) {
@@ -446,92 +409,6 @@ export class IntroScene extends BaseScene {
     this.uiGroup.add(this.instructionSprite)
     this.uiGroup.add(this.normalModeButton)
     this.uiGroup.add(this.endlessModeButton)
-    this.uiGroup.add(this.settingsButton)
-
-    // 設定パネルを作成
-    this.buildSettingsPanel()
-  }
-
-  private buildSettingsPanel() {
-    this.settingsGroup = new THREE.Group()
-    this.settingsGroup.position.set(0, 3, 4)
-    this.settingsGroup.visible = false
-    this.scene.add(this.settingsGroup)
-
-    // パネル背景
-    this.settingsPanel = createPanel3D({
-      width: 5.5,
-      height: 4.5,
-      color: 0x000000,
-      opacity: 0.9,
-      borderColor: 0xffd700
-    })
-    this.settingsGroup.add(this.settingsPanel)
-
-    // タイトル
-    const settingsTitleSprite = createTextSprite({
-      text: '設定',
-      fontSize: 56,
-      color: '#FFD700'
-    })
-    settingsTitleSprite.position.set(0, 1.5, 0.1)
-    this.settingsGroup.add(settingsTitleSprite)
-
-    // マスター音量スライダー
-    this.masterVolumeSlider = new Slider3D({
-      label: 'マスター',
-      width: 2.8,
-      initialValue: 0.7,
-      onChange: (value) => {
-        this.game.audioManager.setMasterVolume(value)
-      }
-    })
-    this.masterVolumeSlider.position.set(0.3, 0.5, 0.1)
-    this.settingsGroup.add(this.masterVolumeSlider)
-
-    // 閉じるボタン
-    this.closeSettingsButton = new Button3D({
-      text: '閉じる',
-      width: 2.4,
-      height: 0.7,
-      fontSize: 40,
-      onClick: () => {
-        this.game.audioManager.playClick()
-        this.toggleSettings()
-      }
-    })
-    this.closeSettingsButton.position.set(0, -1.4, 0.1)
-    this.settingsGroup.add(this.closeSettingsButton)
-  }
-
-  private toggleSettings() {
-    this.settingsOpen = !this.settingsOpen
-    if (this.settingsGroup) {
-      if (this.settingsOpen) {
-        this.settingsGroup.visible = true
-        gsap.from(this.settingsGroup.scale, {
-          x: 0,
-          y: 0,
-          z: 0,
-          duration: 0.3,
-          ease: 'back.out(1.5)'
-        })
-      } else {
-        gsap.to(this.settingsGroup.scale, {
-          x: 0,
-          y: 0,
-          z: 0,
-          duration: 0.2,
-          ease: 'power2.in',
-          onComplete: () => {
-            if (this.settingsGroup) {
-              this.settingsGroup.visible = false
-              this.settingsGroup.scale.set(1, 1, 1)
-            }
-          }
-        })
-      }
-    }
   }
 
   private setupEventListeners() {
@@ -558,20 +435,6 @@ export class IntroScene extends BaseScene {
     this.updateMousePosition(e)
     this.raycaster.setFromCamera(this.mouse, this.game.camera)
 
-    // スライダーのドラッグ処理
-    if (this.activeSlider) {
-      const sliderPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -this.activeSlider.position.z - (this.settingsGroup?.position.z || 0))
-      const intersection = new THREE.Vector3()
-      this.raycaster.ray.intersectPlane(sliderPlane, intersection)
-
-      if (intersection) {
-        const localX = intersection.x - (this.settingsGroup?.position.x || 0) - this.activeSlider.position.x
-        const normalizedX = (localX + this.activeSlider.getWidth() / 2) / this.activeSlider.getWidth()
-        this.activeSlider.setValueFromPosition(Math.max(0, Math.min(1, normalizedX)))
-      }
-      return
-    }
-
     // ボタンのホバー処理
     const buttons = this.getInteractiveButtons()
     const intersects = this.raycaster.intersectObjects(buttons.map(b => b.getMesh()))
@@ -592,45 +455,11 @@ export class IntroScene extends BaseScene {
     } else {
       this.game.renderer.domElement.style.cursor = 'default'
     }
-
-    // スライダーのホバー処理
-    const sliders = this.getInteractiveSliders()
-    const sliderHandles = sliders.map(s => s.getHandle())
-    const sliderIntersects = this.raycaster.intersectObjects(sliderHandles)
-
-    if (sliderIntersects.length > 0) {
-      this.game.renderer.domElement.style.cursor = 'pointer'
-    }
   }
 
   private onPointerDown(e: PointerEvent) {
     this.updateMousePosition(e)
     this.raycaster.setFromCamera(this.mouse, this.game.camera)
-
-    // スライダーのドラッグ開始
-    const sliders = this.getInteractiveSliders()
-    const sliderMeshes = sliders.flatMap(s => [s.getHandle(), s.getTrack()])
-    const sliderIntersects = this.raycaster.intersectObjects(sliderMeshes)
-
-    if (sliderIntersects.length > 0) {
-      const slider = sliderIntersects[0].object.userData.slider as Slider3D | undefined
-      if (slider) {
-        this.activeSlider = slider
-        slider.setDragging(true)
-
-        // クリック位置で値を設定
-        const sliderPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -slider.position.z - (this.settingsGroup?.position.z || 0))
-        const intersection = new THREE.Vector3()
-        this.raycaster.ray.intersectPlane(sliderPlane, intersection)
-
-        if (intersection) {
-          const localX = intersection.x - (this.settingsGroup?.position.x || 0) - slider.position.x
-          const normalizedX = (localX + slider.getWidth() / 2) / slider.getWidth()
-          slider.setValueFromPosition(Math.max(0, Math.min(1, normalizedX)))
-        }
-        return
-      }
-    }
 
     // ボタンの押下処理
     const buttons = this.getInteractiveButtons()
@@ -646,13 +475,6 @@ export class IntroScene extends BaseScene {
   }
 
   private onPointerUp(e: PointerEvent) {
-    // スライダーのドラッグ終了
-    if (this.activeSlider) {
-      this.activeSlider.setDragging(false)
-      this.activeSlider = null
-      return
-    }
-
     // ボタンのクリック処理（押下時に記録したボタンを使用）
     if (this.activeButton) {
       this.activeButton.setPressed(false)
@@ -674,13 +496,8 @@ export class IntroScene extends BaseScene {
   private getInteractiveButtons(): Button3D[] {
     const buttons: Button3D[] = []
 
-    if (!this.settingsOpen) {
-      if (this.normalModeButton) buttons.push(this.normalModeButton)
-      if (this.endlessModeButton) buttons.push(this.endlessModeButton)
-      if (this.settingsButton) buttons.push(this.settingsButton)
-    } else {
-      if (this.closeSettingsButton) buttons.push(this.closeSettingsButton)
-    }
+    if (this.normalModeButton) buttons.push(this.normalModeButton)
+    if (this.endlessModeButton) buttons.push(this.endlessModeButton)
 
     return buttons
   }
@@ -690,16 +507,6 @@ export class IntroScene extends BaseScene {
    */
   private async startGame(mode: GameMode): Promise<void> {
     await this.game.sceneManager.switchTo('game', { mode })
-  }
-
-  private getInteractiveSliders(): Slider3D[] {
-    const sliders: Slider3D[] = []
-
-    if (this.settingsOpen) {
-      if (this.masterVolumeSlider) sliders.push(this.masterVolumeSlider)
-    }
-
-    return sliders
   }
 
   /**

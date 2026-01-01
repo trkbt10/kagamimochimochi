@@ -2,13 +2,17 @@ import * as THREE from 'three'
 import { gsap } from 'gsap'
 import { ExtrudedText, TEXT_PATH_DATA, type ExtrudeTextOptions } from '../text-builder'
 
+// 構成: 緑(本体) → 緑(側面ふち) → 濃い緑(外側ふち)
 const DEFAULT_OPTIONS: ExtrudeTextOptions = {
   depth: 8,
   bevelThickness: 2,
   bevelSize: 1.5,
-  bevelSegments: 5,
+  bevelSegments: 15, // 5→15に増加（滑らかなベベル）
   frontColor: 0x88ee44, // ライムグリーン
-  sideColor: 0x225522, // ダークグリーン
+  sideColor: 0x44aa22, // 緑（内側ふちどり）
+  outlines: [
+    { scale: 1.08, color: 0x225522 }, // 濃い緑（外側ふちどり）
+  ],
 }
 
 export class CutInText {

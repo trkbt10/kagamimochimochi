@@ -1,3 +1,13 @@
+/** アウトラインレイヤーの定義 */
+export type OutlineLayer = {
+  /** 拡大率（1.0 = 元サイズ、1.1 = 10%大きい） */
+  scale: number
+  /** 色 */
+  color: number
+  /** 深度（省略時はメインと同じ） */
+  depth?: number
+}
+
 export type ExtrudeTextOptions = {
   depth: number
   bevelThickness: number
@@ -5,6 +15,8 @@ export type ExtrudeTextOptions = {
   bevelSegments: number
   frontColor: number
   sideColor: number
+  /** アウトラインレイヤー（外側から順） */
+  outlines?: OutlineLayer[]
 }
 
 /** テキストごとの設定 */

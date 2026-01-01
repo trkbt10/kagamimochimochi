@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { SVGLoader } from 'three/examples/jsm/loaders/SVGLoader.js'
 import { gsap } from 'gsap'
-import type { ExtrudeTextOptions, TextPathData } from './types'
+import type { ExtrudeTextOptions, TextPathData, OutlineLayer } from './types'
 
 export class ExtrudedText {
   private group: THREE.Group
@@ -47,13 +47,14 @@ export class ExtrudedText {
       const shapes = SVGLoader.createShapes(path)
 
       for (const shape of shapes) {
+        // ベベルセグメントを増やして滑らかに（最低12）
         const geometry = new THREE.ExtrudeGeometry(shape, {
           depth: options.depth,
           bevelEnabled: true,
           bevelThickness: options.bevelThickness,
           bevelSize: options.bevelSize,
           bevelOffset: 0,
-          bevelSegments: options.bevelSegments,
+          bevelSegments: Math.max(options.bevelSegments, 12),
         })
 
         // バウンディングボックスを更新
@@ -65,12 +66,23 @@ export class ExtrudedText {
           maxY = Math.max(maxY, geometry.boundingBox.max.y)
         }
 
+        // アウトラインレイヤーを作成（後ろから前へ描画）
+        if (options.outlines) {
+          for (let i = 0; i < options.outlines.length; i++) {
+            const outline = options.outlines[i]
+            const outlineMesh = this.createOutlineMesh(geometry, outline, i)
+            this.meshes.push(outlineMesh)
+            this.group.add(outlineMesh)
+          }
+        }
+
         // マテリアル（前面と側面で異なる色）
         const materials = [
           this.createFrontMaterial(options), // 前面
           this.createSideMaterial(options), // 側面（ベベル含む）
         ]
 
+        // メインメッシュ（最前面）
         const mesh = new THREE.Mesh(geometry, materials)
         this.meshes.push(mesh)
         this.group.add(mesh)
@@ -102,6 +114,32 @@ export class ExtrudedText {
       roughness: 0.3,
       side: THREE.FrontSide,
     })
+  }
+
+  /**
+   * アウトラインメッシュを作成
+   * @param baseGeometry ベースとなるジオメトリ
+   * @param outline アウトラインの設定
+   * @param index アウトラインのインデックス（renderOrder計算用）
+   */
+  private createOutlineMesh(
+    baseGeometry: THREE.ExtrudeGeometry,
+    outline: OutlineLayer,
+    index: number
+  ): THREE.Mesh {
+    const material = new THREE.MeshStandardMaterial({
+      color: outline.color,
+      metalness: 0.2,
+      roughness: 0.6,
+      side: THREE.FrontSide,
+    })
+
+    const mesh = new THREE.Mesh(baseGeometry, material)
+    // スケールで拡大してアウトライン効果を実現
+    mesh.scale.setScalar(outline.scale)
+    // アウトラインはメインより後ろに描画（負のrenderOrder）
+    mesh.renderOrder = -(index + 1)
+    return mesh
   }
 
   private createShineLight() {
