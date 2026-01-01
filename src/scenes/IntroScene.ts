@@ -5,7 +5,7 @@ import type { Game } from '../core/Game'
 import type { LayoutInfo } from '../core/layout'
 import { redistributeParticles, calculateLayoutScale } from '../core/layout'
 import { createTextSprite } from '../ui/text-sprite'
-import { Button3D } from '../ui/button-3d'
+import { ExtrudedButton3D } from '../ui/extruded-button-3d'
 import { PhysicsContext, DecorativeMochiGroup } from '../objects'
 import { SkyGradient } from '../effects/SkyGradient'
 import { SceneLighting } from '../effects/SceneLighting'
@@ -51,14 +51,14 @@ export class IntroScene extends BaseScene {
   private titleSubContainer: THREE.Group | null = null
   private subtitleSprite: THREE.Sprite | null = null
   private instructionSprite: THREE.Sprite | null = null
-  private normalModeButton: Button3D | null = null
-  private endlessModeButton: Button3D | null = null
+  private normalModeButton: ExtrudedButton3D | null = null
+  private endlessModeButton: ExtrudedButton3D | null = null
 
   // Raycaster
   private raycaster = new THREE.Raycaster()
   private mouse = new THREE.Vector2()
-  private hoveredButton: Button3D | null = null
-  private activeButton: Button3D | null = null
+  private hoveredButton: ExtrudedButton3D | null = null
+  private activeButton: ExtrudedButton3D | null = null
 
   // イベントハンドラ
   private boundOnPointerMove: (e: PointerEvent) => void
@@ -303,12 +303,16 @@ export class IntroScene extends BaseScene {
     // ボタン作成
     const modeButtonHeight = 0.8
 
-    // 通常モードボタン
-    this.normalModeButton = new Button3D({
-      text: '通常モード',
+    // 通常モードボタン（金ボタン・多重縁取り）
+    this.normalModeButton = new ExtrudedButton3D({
+      textKey: '通常モード',
       width: 3.2,
       height: modeButtonHeight,
-      fontSize: 44,
+      textOptions: {
+        frontColor: 0x8b0000,
+        sideColor: 0x660000,
+        outlines: [{ bevelOffset: 1.5, color: 0x000000 }],
+      },
       onClick: async () => {
         this.game.audioManager.playClick()
         this.game.audioManager.resume().catch(() => {})
@@ -316,16 +320,24 @@ export class IntroScene extends BaseScene {
       }
     })
 
-    // エンドレスモードボタン
-    this.endlessModeButton = new Button3D({
-      text: 'エンドレス',
+    // エンドレスモードボタン（赤ボタン・多重縁取り）
+    this.endlessModeButton = new ExtrudedButton3D({
+      textKey: 'エンドレス',
       width: 3.2,
       height: modeButtonHeight,
-      fontSize: 44,
-      backgroundColor: 0xff6b6b,
+      bodyFrontColor: 0xff6b6b,
+      bodySideColor: 0xaa0000,
+      bodyOutlines: [
+        { bevelOffset: 0.08, color: 0x000000 },
+        { bevelOffset: 0.04, color: 0x660000 },
+      ],
+      textOptions: {
+        frontColor: 0xffffff,
+        sideColor: 0xdddddd,
+        outlines: [{ bevelOffset: 1.5, color: 0x000000 }],
+      },
       hoverColor: 0xff8888,
       activeColor: 0xff4444,
-      borderColor: 0xcc0000,
       onClick: async () => {
         this.game.audioManager.playClick()
         this.game.audioManager.resume().catch(() => {})
@@ -344,13 +356,16 @@ export class IntroScene extends BaseScene {
       modeBtn: modeButtonHeight
     }
 
-    // gap設定
+    // gap設定（ブロック構成: タイトル / メッセージ / ボタン）
     const gaps = {
-      titleToSub: 0.05,      // 鏡餅 - スタッキング間（タイト）
-      subToGreeting: 0.3,    // スタッキング - あけおめ間
-      greetingToInst: 0.15,  // あけおめ - 説明間
-      instToNormal: 0.35,    // 説明 - 通常モードボタン間
-      normalToEndless: 0.2   // 通常 - エンドレスボタン間
+      // ブロック内gap（タイト）
+      titleToSub: 0.1,       // タイトルブロック内（鏡餅 - スタッキング）
+      greetingToInst: 0.15,  // メッセージブロック内（あけおめ - 説明）
+      // ブロック間gap
+      subToGreeting: 0.3,    // タイトル→あけおめ（近づける）
+      instToNormal: 0.7,     // 説明→ボタン（離す）
+      // ボタン間
+      normalToEndless: 0.6   // ボタン間隔（0.4 × 1.5 = 0.6）
     }
 
     // 全体の高さを計算
@@ -447,7 +462,7 @@ export class IntroScene extends BaseScene {
     }
 
     if (intersects.length > 0) {
-      const button = intersects[0].object.userData.button as Button3D | undefined
+      const button = intersects[0].object.userData.button as ExtrudedButton3D | undefined
       if (button) {
         button.setHovered(true)
         this.hoveredButton = button
@@ -467,7 +482,7 @@ export class IntroScene extends BaseScene {
     const intersects = this.raycaster.intersectObjects(buttons.map(b => b.getMesh()))
 
     if (intersects.length > 0) {
-      const button = intersects[0].object.userData.button as Button3D | undefined
+      const button = intersects[0].object.userData.button as ExtrudedButton3D | undefined
       if (button) {
         button.setPressed(true)
         this.activeButton = button
@@ -494,8 +509,8 @@ export class IntroScene extends BaseScene {
     buttons.forEach(b => b.setPressed(false))
   }
 
-  private getInteractiveButtons(): Button3D[] {
-    const buttons: Button3D[] = []
+  private getInteractiveButtons(): ExtrudedButton3D[] {
+    const buttons: ExtrudedButton3D[] = []
 
     if (this.normalModeButton) buttons.push(this.normalModeButton)
     if (this.endlessModeButton) buttons.push(this.endlessModeButton)
