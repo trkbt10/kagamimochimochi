@@ -4,16 +4,28 @@ import { BaseScene } from './BaseScene'
 import type { Game } from '../core/Game'
 import type { LayoutInfo } from '../core/layout'
 import { redistributeParticles, calculateLayoutScale } from '../core/layout'
-import { createTextSprite, createPachinkoTextSprite } from '../ui/text-sprite'
+import { createTextSprite } from '../ui/text-sprite'
 import { Button3D } from '../ui/button-3d'
 import { Slider3D } from '../ui/slider-3d'
 import { createPanel3D } from '../ui/panel-3d'
 import { PhysicsContext, DecorativeMochiGroup } from '../objects'
 import { SkyGradient } from '../effects/SkyGradient'
+import { SceneLighting } from '../effects/SceneLighting'
 import { SnowEffect } from '../effects/SnowEffect'
 import { Kadomatsu } from '../objects/Kadomatsu'
 import { MountainFuji } from '../objects/MountainFuji'
+import { ExtrudedText, TEXT_PATH_DATA } from '../text-builder'
 import type { GameMode } from '../types/game-mode'
+
+// タイトル用の金ピカ赤フチどり設定
+const TITLE_TEXT_OPTIONS = {
+  depth: 10,
+  bevelThickness: 2.5,
+  bevelSize: 2,
+  bevelSegments: 6,
+  frontColor: 0xffd700, // ゴールド
+  sideColor: 0xcc0000, // 赤フチ
+}
 
 export class IntroScene extends BaseScene {
   private particles: THREE.Points | null = null
@@ -23,6 +35,7 @@ export class IntroScene extends BaseScene {
 
   // お正月演出
   private skyGradient: SkyGradient | null = null
+  private sceneLighting: SceneLighting | null = null
   private snowEffect: SnowEffect | null = null
   private kadomatsuLeft: Kadomatsu | null = null
   private kadomatsuRight: Kadomatsu | null = null
@@ -30,8 +43,10 @@ export class IntroScene extends BaseScene {
 
   // UI要素
   private uiGroup: THREE.Group | null = null
-  private titleSprite: THREE.Sprite | null = null
-  private titleSubSprite: THREE.Sprite | null = null
+  private title3D: ExtrudedText | null = null
+  private titleContainer: THREE.Group | null = null
+  private titleSub3D: ExtrudedText | null = null
+  private titleSubContainer: THREE.Group | null = null
   private subtitleSprite: THREE.Sprite | null = null
   private instructionSprite: THREE.Sprite | null = null
   private normalModeButton: Button3D | null = null
@@ -77,11 +92,13 @@ export class IntroScene extends BaseScene {
 
     // お正月演出のクリーンアップ
     this.skyGradient?.dispose()
+    this.sceneLighting?.dispose()
     this.snowEffect?.dispose()
     this.kadomatsuLeft?.dispose()
     this.kadomatsuRight?.dispose()
     this.mountain?.dispose()
     this.skyGradient = null
+    this.sceneLighting = null
     this.snowEffect = null
     this.kadomatsuLeft = null
     this.kadomatsuRight = null
@@ -92,6 +109,14 @@ export class IntroScene extends BaseScene {
     this.physicsContext?.dispose()
     this.decorativeMochi = null
     this.physicsContext = null
+
+    // 3Dタイトルのクリーンアップ
+    this.title3D?.dispose()
+    this.titleSub3D?.dispose()
+    this.title3D = null
+    this.titleSub3D = null
+    this.titleContainer = null
+    this.titleSubContainer = null
 
     this.clearScene()
   }
@@ -106,15 +131,9 @@ export class IntroScene extends BaseScene {
       this.particles.rotation.y += delta * 0.1
     }
 
-    // 物理演算と鏡餅の浮遊アニメーション
+    // 物理演算と鏡餅
     if (this.physicsContext && this.decorativeMochi) {
       this.physicsContext.step(delta)
-
-      // 浮遊力を適用（sin波で揺らぎ）
-      const time = Date.now() * 0.002
-      this.decorativeMochi.applyFloatForce(time, 5.0)
-
-      // メッシュを物理ボディに同期
       this.decorativeMochi.update(delta)
 
       // グループ全体を回転
@@ -141,37 +160,9 @@ export class IntroScene extends BaseScene {
     // 背景色は使わない（空で覆う）
     this.scene.background = null
 
-    // 霧を薄く - 夜空に合わせた色
-    this.scene.fog = new THREE.FogExp2(0x0a0a1e, 0.008)
-
-    // 月明かり（青白い光）
-    const moonLight = new THREE.DirectionalLight(0x8888ff, 0.4)
-    moonLight.position.set(-10, 15, -5)
-    this.scene.add(moonLight)
-
-    // Ambient light - 夜なので少し暗め
-    const ambient = new THREE.AmbientLight(0x6666aa, 0.3)
-    this.scene.add(ambient)
-
-    // Main spotlight - ゴールドで鏡餅を照らす
-    const spotlight = new THREE.SpotLight(0xffd700, 3, 40, Math.PI / 4, 0.5, 1)
-    spotlight.position.set(0, 15, 5)
-    spotlight.castShadow = true
-    this.scene.add(spotlight)
-
-    // Additional front light for UI visibility
-    const frontLight = new THREE.DirectionalLight(0xffffff, 0.4)
-    frontLight.position.set(0, 5, 10)
-    this.scene.add(frontLight)
-
-    // Point lights for ambiance - 赤とゴールドでお正月感
-    const redLight = new THREE.PointLight(0xff3333, 1.2, 25)
-    redLight.position.set(-5, 3, -3)
-    this.scene.add(redLight)
-
-    const goldLight = new THREE.PointLight(0xffd700, 1.2, 25)
-    goldLight.position.set(5, 3, -3)
-    this.scene.add(goldLight)
+    // ライティング設定（共通クラス使用）
+    this.sceneLighting = new SceneLighting('intro')
+    this.sceneLighting.addToScene(this.scene)
 
     // 雪エフェクト
     this.snowEffect = new SnowEffect()
@@ -276,36 +267,35 @@ export class IntroScene extends BaseScene {
     this.uiGroup.position.set(0, 3, 3)
     this.scene.add(this.uiGroup)
 
-    // パチンコ風スタイル設定
-    const pachinkoStyle = {
-      outlines: [
-        { color: '#000000', width: 12 },
-        { color: '#8B0000', width: 9 },
-        { color: '#FF4500', width: 6 },
-        { color: '#FFD700', width: 3 }
-      ],
-      gradientColors: ['#FFFACD', '#FFD700', '#DAA520', '#B8860B'],
-      bevelHighlight: 'rgba(255,255,255,0.9)',
-      bevelShadow: 'rgba(0,0,0,0.5)',
-      glowColor: '#FFD700',
-      glowBlur: 15
+    // 3D押し出しタイトル「鏡餅」
+    const titlePathData = TEXT_PATH_DATA['鏡餅']
+    if (titlePathData) {
+      this.title3D = new ExtrudedText(titlePathData, TITLE_TEXT_OPTIONS)
+      this.titleContainer = new THREE.Group()
+      this.titleContainer.add(this.title3D.getGroup())
+      // スケール調整（SVGサイズに合わせる）
+      const titleScale = 0.018
+      this.titleContainer.scale.set(titleScale, titleScale, titleScale)
+      // 局所ライトを追加（金色がよく見えるように）
+      const titleLight = new THREE.PointLight(0xffffff, 1.5, 10)
+      titleLight.position.set(0, 0, 50)
+      this.titleContainer.add(titleLight)
     }
-    const titleScale = 1.0
 
-    // スプライト作成（位置は後で計算）
-    this.titleSprite = createPachinkoTextSprite({
-      text: '鏡餅',
-      fontSize: 110,
-      ...pachinkoStyle
-    })
-    this.titleSprite.scale.multiplyScalar(titleScale)
-
-    this.titleSubSprite = createPachinkoTextSprite({
-      text: 'スタッキング',
-      fontSize: 70,
-      ...pachinkoStyle
-    })
-    this.titleSubSprite.scale.multiplyScalar(titleScale)
+    // 3D押し出しタイトル「スタッキング」
+    const titleSubPathData = TEXT_PATH_DATA['スタッキング']
+    if (titleSubPathData) {
+      this.titleSub3D = new ExtrudedText(titleSubPathData, TITLE_TEXT_OPTIONS)
+      this.titleSubContainer = new THREE.Group()
+      this.titleSubContainer.add(this.titleSub3D.getGroup())
+      // スケール調整
+      const subTitleScale = 0.012
+      this.titleSubContainer.scale.set(subTitleScale, subTitleScale, subTitleScale)
+      // 局所ライトを追加
+      const subTitleLight = new THREE.PointLight(0xffffff, 1.5, 10)
+      subTitleLight.position.set(0, 0, 50)
+      this.titleSubContainer.add(subTitleLight)
+    }
 
     this.subtitleSprite = createTextSprite({
       text: 'あけましておめでとうございます！',
@@ -371,10 +361,12 @@ export class IntroScene extends BaseScene {
       }
     })
 
-    // 各要素の高さを取得
+    // 各要素の高さを取得（3Dテキストはスケール × SVG高さで推定）
+    const titleHeight = this.titleContainer ? 1.3 : 0 // 推定値
+    const titleSubHeight = this.titleSubContainer ? 0.85 : 0 // 推定値
     const heights = {
-      title: this.titleSprite.scale.y,
-      titleSub: this.titleSubSprite.scale.y,
+      title: titleHeight,
+      titleSub: titleSubHeight,
       subtitle: this.subtitleSprite.scale.y,
       instruction: this.instructionSprite.scale.y,
       modeBtn: modeButtonHeight,
@@ -413,11 +405,15 @@ export class IntroScene extends BaseScene {
 
     // 上から順に配置
     currentY -= heights.title / 2
-    this.titleSprite.position.set(0, currentY, 0)
+    if (this.titleContainer) {
+      this.titleContainer.position.set(0, currentY, 0)
+    }
     currentY -= heights.title / 2 + gaps.titleToSub
 
     currentY -= heights.titleSub / 2
-    this.titleSubSprite.position.set(0, currentY, 0)
+    if (this.titleSubContainer) {
+      this.titleSubContainer.position.set(0, currentY, 0)
+    }
     currentY -= heights.titleSub / 2 + gaps.subToGreeting
 
     currentY -= heights.subtitle / 2
@@ -440,8 +436,12 @@ export class IntroScene extends BaseScene {
     this.settingsButton.position.set(0, currentY, 0)
 
     // UIグループに追加
-    this.uiGroup.add(this.titleSprite)
-    this.uiGroup.add(this.titleSubSprite)
+    if (this.titleContainer) {
+      this.uiGroup.add(this.titleContainer)
+    }
+    if (this.titleSubContainer) {
+      this.uiGroup.add(this.titleSubContainer)
+    }
     this.uiGroup.add(this.subtitleSprite)
     this.uiGroup.add(this.instructionSprite)
     this.uiGroup.add(this.normalModeButton)
@@ -765,14 +765,15 @@ export class IntroScene extends BaseScene {
       })
     }
 
-    // Animate title with pulse
-    if (this.titleSprite) {
-      const baseTitleScale = this.titleSprite.scale.clone()
+    // Animate 3D title with pulse
+    if (this.titleContainer) {
+      const baseTitleScale = this.titleContainer.scale.clone()
       const pulseAnimation = () => {
-        if (!this.titleSprite) return
-        gsap.to(this.titleSprite.scale, {
+        if (!this.titleContainer) return
+        gsap.to(this.titleContainer.scale, {
           x: baseTitleScale.x * 1.05,
           y: baseTitleScale.y * 1.05,
+          z: baseTitleScale.z * 1.05,
           duration: 1,
           ease: 'power1.inOut',
           yoyo: true,
@@ -782,14 +783,15 @@ export class IntroScene extends BaseScene {
       setTimeout(pulseAnimation, 1500)
     }
 
-    // Animate titleSubSprite with pulse (slightly offset for visual interest)
-    if (this.titleSubSprite) {
-      const baseSubTitleScale = this.titleSubSprite.scale.clone()
+    // Animate 3D sub-title with pulse (slightly offset for visual interest)
+    if (this.titleSubContainer) {
+      const baseSubTitleScale = this.titleSubContainer.scale.clone()
       const pulseAnimation = () => {
-        if (!this.titleSubSprite) return
-        gsap.to(this.titleSubSprite.scale, {
+        if (!this.titleSubContainer) return
+        gsap.to(this.titleSubContainer.scale, {
           x: baseSubTitleScale.x * 1.05,
           y: baseSubTitleScale.y * 1.05,
+          z: baseSubTitleScale.z * 1.05,
           duration: 1.2,
           ease: 'power1.inOut',
           yoyo: true,

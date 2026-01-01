@@ -46,7 +46,7 @@ import {
   updateUITextSprite,
   updateUIContainerPosition
 } from './game/text-sprite'
-import { EffectManager } from '../effects'
+import { EffectManager, SceneLighting } from '../effects'
 import { StickinessManager } from './game/stickiness-manager'
 import { SkyGradient } from '../effects/SkyGradient'
 import { SnowEffect } from '../effects/SnowEffect'
@@ -120,8 +120,7 @@ export class GameScene extends BaseScene {
   private snowEffect: SnowEffect | null = null
   private mountain: MountainFuji | null = null
   private skyTime = 0
-  private ambientLight: THREE.AmbientLight | null = null
-  private mainLight: THREE.DirectionalLight | null = null
+  private sceneLighting: SceneLighting | null = null
 
   constructor(game: Game) {
     super(game)
@@ -172,11 +171,11 @@ export class GameScene extends BaseScene {
     this.skyGradient?.dispose()
     this.snowEffect?.dispose()
     this.mountain?.dispose()
+    this.sceneLighting?.dispose()
     this.skyGradient = null
     this.snowEffect = null
     this.mountain = null
-    this.ambientLight = null
-    this.mainLight = null
+    this.sceneLighting = null
 
     this.clearScene()
     this.world = null
@@ -499,7 +498,6 @@ export class GameScene extends BaseScene {
     this.skyGradient.addToScene(this.scene)
 
     this.scene.background = null
-    this.scene.fog = new THREE.FogExp2(0x0a0a1e, 0.01)
 
     // 雪エフェクト
     this.snowEffect = new SnowEffect()
@@ -517,35 +515,9 @@ export class GameScene extends BaseScene {
   }
 
   private setupLights() {
-    // 月明かり（夜間用）
-    const moonLight = new THREE.DirectionalLight(0x8888ff, 0.3)
-    moonLight.position.set(-10, 15, -5)
-    this.scene.add(moonLight)
-
-    // アンビエント（時刻で変化）
-    this.ambientLight = new THREE.AmbientLight(0x6666aa, 0.3)
-    this.scene.add(this.ambientLight)
-
-    // メインライト（時刻で変化）
-    this.mainLight = new THREE.DirectionalLight(0xffffff, 0.5)
-    this.mainLight.position.set(5, 10, 5)
-    this.mainLight.castShadow = true
-    this.mainLight.shadow.mapSize.width = 2048
-    this.mainLight.shadow.mapSize.height = 2048
-    // シャドウアクネ（モアレ模様）防止
-    this.mainLight.shadow.bias = -0.0005
-    this.mainLight.shadow.normalBias = 0.02
-    this.scene.add(this.mainLight)
-
-    const spotLight = new THREE.SpotLight(0xffd700, 1, 30, Math.PI / 6, 0.5)
-    spotLight.position.set(0, 15, 0)
-    spotLight.target.position.set(0, 0, 0)
-    this.scene.add(spotLight)
-    this.scene.add(spotLight.target)
-
-    const targetGlow = new THREE.PointLight(0xffd700, 0.5, 5)
-    targetGlow.position.set(0, -1, 0)
-    this.scene.add(targetGlow)
+    // SceneLightingで共通化されたライト設定を使用
+    this.sceneLighting = new SceneLighting('game')
+    this.sceneLighting.addToScene(this.scene)
   }
 
   private setupFloor() {
@@ -954,33 +926,8 @@ export class GameScene extends BaseScene {
   }
 
   private updateLightingForSkyTime() {
-    if (!this.ambientLight || !this.mainLight) return
-
-    // 夜 (0) → 朝 (1) でライティングを変化
-    const t = this.skyTime
-
-    // アンビエントライト: 青っぽい暗め → 明るい白
-    const ambientIntensity = 0.3 + t * 0.4
-    this.ambientLight.intensity = ambientIntensity
-    this.ambientLight.color.setHex(t < 0.5 ? 0x6666aa : 0xffffff)
-
-    // メインライト: 暗い → 明るいオレンジ/白
-    const mainIntensity = 0.5 + t * 0.8
-    this.mainLight.intensity = mainIntensity
-    if (t > 0.5) {
-      this.mainLight.color.setHex(0xffddaa) // 朝日のオレンジがかった色
-    }
-
-    // 霧の色も変化
-    if (this.scene.fog instanceof THREE.FogExp2) {
-      if (t < 0.3) {
-        this.scene.fog.color.setHex(0x0a0a1e) // 夜
-      } else if (t < 0.6) {
-        this.scene.fog.color.setHex(0x2a1030) // 薄明
-      } else {
-        this.scene.fog.color.setHex(0xff8060) // 朝焼け
-      }
-    }
+    // SceneLightingの動的更新を使用
+    this.sceneLighting?.updateTimeOfDay(this.skyTime)
   }
 
   private animateCameraToStart() {

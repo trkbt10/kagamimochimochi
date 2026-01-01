@@ -14,8 +14,7 @@ export { MochiManager } from './MochiManager'
 export { PhysicsContext, type PhysicsContextConfig } from './PhysicsContext'
 export {
   DecorativeMochiGroup,
-  type DecorativeMochiConfig,
-  type MochiDisplayState
+  type DecorativeMochiConfig
 } from './DecorativeMochiGroup'
 
 // 他のオブジェクト

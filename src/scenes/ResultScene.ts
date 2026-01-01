@@ -8,7 +8,7 @@ import { createTextSprite } from '../ui/text-sprite'
 import { Button3D } from '../ui/button-3d'
 import { createConfettiSystem, updateConfetti } from '../ui/confetti'
 import { PhysicsContext, DecorativeMochiGroup } from '../objects'
-import { GlitterScoreRenderer } from '../effects'
+import { GlitterScoreRenderer, SceneLighting } from '../effects'
 import { SkyGradient } from '../effects/SkyGradient'
 import { SnowEffect } from '../effects/SnowEffect'
 import { MountainFuji } from '../objects/MountainFuji'
@@ -112,6 +112,7 @@ export class ResultScene extends BaseScene {
 
   // お正月演出
   private skyGradient: SkyGradient | null = null
+  private sceneLighting: SceneLighting | null = null
   private snowEffect: SnowEffect | null = null
   private mountain: MountainFuji | null = null
 
@@ -216,9 +217,11 @@ export class ResultScene extends BaseScene {
 
     // お正月演出のクリーンアップ
     this.skyGradient?.dispose()
+    this.sceneLighting?.dispose()
     this.snowEffect?.dispose()
     this.mountain?.dispose()
     this.skyGradient = null
+    this.sceneLighting = null
     this.snowEffect = null
     this.mountain = null
 
@@ -273,7 +276,12 @@ export class ResultScene extends BaseScene {
     this.skyGradient.addToScene(this.scene)
 
     this.scene.background = null
-    this.scene.fog = new THREE.FogExp2(0xff8060, 0.015) // 朝焼け色の霧
+
+    // ライティング設定（共通クラス使用・スコアティアでアクセント色を指定）
+    this.sceneLighting = new SceneLighting('result', {
+      accentColor: tierConfig.accentLightColor
+    })
+    this.sceneLighting.addToScene(this.scene)
 
     // 雪エフェクト
     this.snowEffect = new SnowEffect()
@@ -283,22 +291,6 @@ export class ResultScene extends BaseScene {
     this.mountain = new MountainFuji(1.5)
     this.mountain.setPosition(0, -2, -60)
     this.mountain.addToScene(this.scene)
-
-    // 朝日の暖かい光
-    const sunLight = new THREE.DirectionalLight(0xffddaa, 1.2)
-    sunLight.position.set(5, 10, -5)
-    this.scene.add(sunLight)
-
-    const ambient = new THREE.AmbientLight(0xffffff, 0.6)
-    this.scene.add(ambient)
-
-    const spotlight = new THREE.SpotLight(0xffd700, 2, 30, Math.PI / 4, 0.5)
-    spotlight.position.set(0, 15, 5)
-    this.scene.add(spotlight)
-
-    const accentLight = new THREE.PointLight(tierConfig.accentLightColor, 1, 20)
-    accentLight.position.set(0, 5, 5)
-    this.scene.add(accentLight)
 
     this.createParticles()
     this.createResultKagamimochi()
@@ -339,38 +331,12 @@ export class ResultScene extends BaseScene {
     // 物理コンテキストを作成（通常の重力）
     this.physicsContext = new PhysicsContext()
 
-    // 装飾用鏡餅グループを作成（餅のみ）
+    // 装飾用鏡餅グループを作成（餅のみ、上から落として積む）
     this.decorativeMochi = new DecorativeMochiGroup({
       includeDai: false,
       includeLeaf: false,
       physicsContext: this.physicsContext,
       initialPosition: new THREE.Vector3(0, 2, 0)
-    })
-
-    // スコアに応じた表示状態を適用
-    const baseOffset = this.score >= 30 ? 0 : (100 - this.score) * 0.02
-    const topOffset = this.score >= 60 ? 0 : (100 - this.score) * 0.03
-    const mikanOffset = this.score >= 80 ? 0 : (100 - this.score) * 0.04
-
-    this.decorativeMochi.applyDisplayState({
-      baseOpacity: this.score >= 30 ? 1 : 0.3,
-      topOpacity: this.score >= 60 ? 1 : 0.3,
-      mikanOpacity: this.score >= 80 ? 1 : 0.3,
-      baseOffset: new THREE.Vector3(
-        baseOffset * (Math.random() - 0.5),
-        0,
-        baseOffset * (Math.random() - 0.5)
-      ),
-      topOffset: new THREE.Vector3(
-        topOffset * (Math.random() - 0.5),
-        0,
-        topOffset * (Math.random() - 0.5)
-      ),
-      mikanOffset: new THREE.Vector3(
-        mikanOffset * (Math.random() - 0.5),
-        0,
-        mikanOffset * (Math.random() - 0.5)
-      )
     })
 
     this.decorativeMochi.addToScene(this.scene)

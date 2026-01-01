@@ -1,20 +1,39 @@
 import * as THREE from 'three'
 import { SVGLoader } from 'three/examples/jsm/loaders/SVGLoader.js'
 import { gsap } from 'gsap'
-import type { ExtrudeTextOptions } from './types'
+import type { ExtrudeTextOptions, TextPathData } from './types'
 
 export class ExtrudedText {
   private group: THREE.Group
   private meshes: THREE.Mesh[] = []
   private shineLight: THREE.SpotLight | null = null
 
-  constructor(svgString: string, options: ExtrudeTextOptions) {
+  /**
+   * @param svgStringOrData SVG文字列、またはTextPathDataオブジェクト
+   * @param options 押し出しオプション
+   */
+  constructor(svgStringOrData: string | TextPathData, options: ExtrudeTextOptions) {
     this.group = new THREE.Group()
-    this.createMeshFromSVG(svgString, options)
+
+    if (typeof svgStringOrData === 'string') {
+      // 後方互換性：SVG文字列の場合は幾何学的中心を使用
+      this.createMeshFromSVG(svgStringOrData, options)
+    } else {
+      // TextPathDataの場合は視覚的重心を使用
+      this.createMeshFromSVG(svgStringOrData.svg, options, {
+        originX: svgStringOrData.originX,
+        originY: svgStringOrData.originY
+      })
+    }
+
     this.createShineLight()
   }
 
-  private createMeshFromSVG(svgString: string, options: ExtrudeTextOptions) {
+  private createMeshFromSVG(
+    svgString: string,
+    options: ExtrudeTextOptions,
+    visualCenter?: { originX: number; originY: number }
+  ) {
     const loader = new SVGLoader()
     const svgData = loader.parse(svgString)
 
@@ -58,9 +77,9 @@ export class ExtrudedText {
       }
     }
 
-    // センタリング
-    const centerX = (minX + maxX) / 2
-    const centerY = (minY + maxY) / 2
+    // センタリング：視覚的重心が指定されていればそれを使用、なければ幾何学的中心
+    const centerX = visualCenter?.originX ?? (minX + maxX) / 2
+    const centerY = visualCenter?.originY ?? (minY + maxY) / 2
     this.group.position.set(-centerX, -centerY, 0)
 
     // Y軸を反転（SVGは上が正、Three.jsは下が正のため）

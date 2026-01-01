@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { gsap } from 'gsap'
-import { ExtrudedText, TEXT_PATHS, type ExtrudeTextOptions } from '../text-builder'
+import { ExtrudedText, TEXT_PATH_DATA, type ExtrudeTextOptions } from '../text-builder'
 
 const DEFAULT_OPTIONS: ExtrudeTextOptions = {
   depth: 8,
@@ -32,24 +32,24 @@ export class CutInText {
     this.hide()
     this.onCompleteCallback = onComplete || null
 
-    const svgPath = TEXT_PATHS[text]
-    if (!svgPath) {
-      console.warn(`No SVG path defined for: ${text}`)
+    const pathData = TEXT_PATH_DATA[text]
+    if (!pathData) {
+      console.warn(`No path data defined for: ${text}`)
       // フォールバック：パスが無い場合はコールバックを即座に実行
       onComplete?.()
       return
     }
 
     const mergedOptions = { ...DEFAULT_OPTIONS, ...options }
-    this.extrudedText = new ExtrudedText(svgPath, mergedOptions)
+    this.extrudedText = new ExtrudedText(pathData, mergedOptions)
 
     // コンテナグループを作成（位置調整用）
     this.container = new THREE.Group()
     this.container.add(this.extrudedText.getGroup())
 
-    // スケール調整（SVGのサイズに応じて調整）
+    // スケール調整（画面サイズに応じて調整）
     // ExtrudedTextでY軸反転(-1)が設定されているため、containerでスケール調整
-    const scale = 0.02
+    const scale = this.calculateResponsiveScale(camera, text)
     this.container.scale.set(scale, scale, scale)
 
     // 局所ライトを追加（カメラ前方でも見えるように）
@@ -62,6 +62,48 @@ export class CutInText {
     this.scene.add(this.container)
 
     this.playAnimation()
+  }
+
+  /**
+   * 画面サイズに応じたスケールを計算
+   * カメラのアスペクト比とテキストの幅を考慮
+   */
+  private calculateResponsiveScale(camera: THREE.Camera, text: string): number {
+    const baseScale = 0.02
+    const distance = 4 // カメラからの距離
+
+    // PerspectiveCameraの場合のみアスペクト比を考慮
+    if (camera instanceof THREE.PerspectiveCamera) {
+      const aspect = camera.aspect
+      const fov = camera.fov * (Math.PI / 180)
+
+      // カメラ前方での可視幅を計算
+      const visibleWidth = 2 * Math.tan(fov / 2) * distance * aspect
+
+      // テキストの幅を推定（viewBoxから取得）
+      const pathData = TEXT_PATH_DATA[text]
+      if (pathData) {
+        // viewBoxから幅を抽出
+        const viewBoxMatch = pathData.svg.match(/viewBox="([^"]+)"/)
+        if (viewBoxMatch) {
+          const [, , , width] = viewBoxMatch[1].split(' ').map(Number)
+          const textWorldWidth = width * baseScale
+
+          // テキストが画面幅の80%を超えないようにスケール調整
+          const maxWidth = visibleWidth * 0.8
+          if (textWorldWidth > maxWidth) {
+            return baseScale * (maxWidth / textWorldWidth)
+          }
+        }
+      }
+
+      // 縦画面の場合はさらにスケールダウン
+      if (aspect < 1) {
+        return baseScale * Math.max(0.5, aspect)
+      }
+    }
+
+    return baseScale
   }
 
   private positionInFrontOfCamera(group: THREE.Group, camera: THREE.Camera) {
