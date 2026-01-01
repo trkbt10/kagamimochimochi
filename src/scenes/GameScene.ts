@@ -6,17 +6,22 @@ import type { Game } from '../core/Game'
 import type { LayoutInfo } from '../core/layout'
 import { calculateLayoutScale } from '../core/layout'
 import {
+  MochiManager,
+  createMochiGeometry,
   type MochiType,
-  MOCHI_HANDLERS,
-  getNextMochiType
-} from './game/mochi-handler'
+  type MochiObject,
+  MOCHI_CONFIGS
+} from '../objects'
+import { ScoreSystem } from '../systems/ScoreSystem'
+import type { GameMode } from '../types/game-mode'
+import { ENDLESS_MODE_CONFIG } from '../types/game-mode'
+import type { NormalResultData, EndlessResultData } from '../types/scene-data'
 import {
   calculateTrajectory,
   getTrajectoryColor,
   createTrajectoryLine,
   updateTrajectoryLine,
   createTargetMarker,
-  TARGET_POSITION,
   DAI_POSITION
 } from './game/trajectory'
 import {
@@ -49,12 +54,6 @@ import { MountainFuji } from '../objects/MountainFuji'
 
 type GamePhase = 'direction' | 'elevation' | 'power' | 'flying' | 'landed' | 'complete'
 
-type LaunchedObject = {
-  mesh: THREE.Mesh
-  body: CANNON.Body
-  type: MochiType
-}
-
 const TRAJECTORY_POINTS = 50
 const LANDING_TIMEOUT_SECONDS = 8
 const LANDING_SPEED_THRESHOLD = 0.5
@@ -73,9 +72,13 @@ export class GameScene extends BaseScene {
 
   private flyingStartTime = 0
 
-  private launchedObjects: LaunchedObject[] = []
-  private currentObject: LaunchedObject | null = null
+  // MochiManager統合
+  private mochiManager: MochiManager | null = null
+  private currentMochi: MochiObject | null = null
   private currentType: MochiType = 'base'
+
+  // ScoreSystem統合
+  private scoreSystem: ScoreSystem | null = null
 
   private phase: GamePhase = 'direction'
   private launchParams: LaunchParameters = createDefaultLaunchParameters()
@@ -83,6 +86,13 @@ export class GameScene extends BaseScene {
   private gaugeValue = 50
   private gaugeDirection = 1
   private gaugeSpeed = 120
+
+  // ゲームモード関連
+  private gameMode: GameMode = 'normal'
+  private endlessMochiIndex = 0
+  private maxStackHeight = 0
+  private gameStartTime = 0
+  private isCollapsed = false
 
   private aimArrow: THREE.Group | null = null
 
@@ -117,7 +127,11 @@ export class GameScene extends BaseScene {
     super(game)
   }
 
-  async enter() {
+  async enter(data?: Record<string, unknown>) {
+    // ゲームモードを取得
+    this.gameMode = (data?.mode as GameMode) ?? 'normal'
+    this.gameStartTime = Date.now()
+
     this.resetState()
     this.setupPhysics()
     this.setupScene()
@@ -138,6 +152,17 @@ export class GameScene extends BaseScene {
     this.removePreviewMesh()
     this.effectManager?.dispose()
     this.effectManager = null
+
+    // カメラ追従を停止
+    this.game.cameraController.stopFollow()
+
+    // MochiManagerのクリーンアップ
+    this.mochiManager?.dispose()
+    this.mochiManager = null
+    this.currentMochi = null
+
+    // ScoreSystemのクリーンアップ
+    this.scoreSystem = null
 
     // 粘性マネージャーのクリーンアップ
     this.stickinessManager?.dispose()
@@ -171,6 +196,59 @@ export class GameScene extends BaseScene {
     // 空と雪のアニメーション
     this.skyGradient?.update(delta)
     this.snowEffect?.update(delta)
+
+    // エンドレスモード: 最大高度の追跡と崩壊チェック
+    if (this.gameMode === 'endless' && !this.isCollapsed) {
+      this.updateMaxHeight()
+      this.checkCollapse()
+    }
+  }
+
+  /**
+   * 現在のスタック最大高度を更新
+   */
+  private updateMaxHeight(): void {
+    if (!this.mochiManager) return
+    const currentMaxHeight = this.mochiManager.getMaxHeight() - DAI_POSITION.y
+    if (currentMaxHeight > this.maxStackHeight) {
+      this.maxStackHeight = currentMaxHeight
+    }
+  }
+
+  /**
+   * 崩壊を検出（エンドレスモード用）
+   */
+  private checkCollapse(): void {
+    // 飛行中・着地直後は判定しない
+    if (this.phase === 'flying' || this.phase === 'landed') return
+    if (!this.mochiManager || this.mochiManager.getCount() === 0) return
+
+    const daiPos = new THREE.Vector3(DAI_POSITION.x, DAI_POSITION.y, DAI_POSITION.z)
+    if (this.mochiManager.detectCollapse(daiPos, 3, -1.5)) {
+      this.onCollapse()
+    }
+  }
+
+  /**
+   * 崩壊時の処理（エンドレスモード）
+   */
+  private onCollapse(): void {
+    if (this.isCollapsed) return
+    this.isCollapsed = true
+
+    this.game.audioManager.playFail()
+
+    // ゲームオーバー演出
+    this.effectManager?.showCutIn('崩壊！', this.game.camera, () => {
+      const survivalTime = (Date.now() - this.gameStartTime) / 1000
+      const resultData: EndlessResultData = {
+        mode: 'endless',
+        maxHeight: Math.round(this.maxStackHeight * 10) / 10,
+        mochiCount: this.mochiManager?.getCount() ?? 0,
+        survivalTime: Math.round(survivalTime)
+      }
+      this.game.sceneManager.switchTo('result', resultData)
+    })
   }
 
   private updatePhysics(delta: number) {
@@ -179,10 +257,8 @@ export class GameScene extends BaseScene {
   }
 
   private syncMeshesWithBodies() {
-    for (const obj of this.launchedObjects) {
-      obj.mesh.position.copy(obj.body.position as unknown as THREE.Vector3)
-      obj.mesh.quaternion.copy(obj.body.quaternion as unknown as THREE.Quaternion)
-    }
+    // MochiManagerが自動的にメッシュと物理ボディを同期
+    this.mochiManager?.update()
   }
 
   private updateAimArrowIfNeeded() {
@@ -233,11 +309,10 @@ export class GameScene extends BaseScene {
   }
 
   private checkLandingCondition() {
-    if (this.phase !== 'flying' || !this.currentObject) return
+    if (this.phase !== 'flying' || !this.currentMochi) return
 
-    const velocity = this.currentObject.body.velocity
-    const speed = Math.sqrt(velocity.x ** 2 + velocity.y ** 2 + velocity.z ** 2)
-    const yPos = this.currentObject.body.position.y
+    const speed = this.currentMochi.getSpeed()
+    const yPos = this.currentMochi.height
     const timeSinceLaunch = (Date.now() - this.flyingStartTime) / 1000
 
     const isSlowEnough = speed < LANDING_SPEED_THRESHOLD
@@ -277,9 +352,8 @@ export class GameScene extends BaseScene {
   }
 
   private setupCamera() {
-    const camera = this.game.camera
-    camera.position.set(0, 12, 22)
-    camera.lookAt(0, 0, 5)
+    // game-defaultプリセットを適用
+    this.game.cameraController.applyPreset('game-default')
   }
 
   private setup3DGauges() {
@@ -307,8 +381,10 @@ export class GameScene extends BaseScene {
   }
 
   private resetState() {
-    this.launchedObjects = []
-    this.currentObject = null
+    // MochiManagerをクリア（setupPhysicsで再作成）
+    this.mochiManager?.dispose()
+    this.mochiManager = null
+    this.currentMochi = null
     this.currentType = 'base'
     this.phase = 'direction'
     this.launchParams = createDefaultLaunchParameters()
@@ -317,6 +393,14 @@ export class GameScene extends BaseScene {
     this.timeScale = 1
     this.skyTime = 0
     this.stickinessManager?.dispose()
+
+    // ScoreSystemを初期化
+    this.scoreSystem = new ScoreSystem(this.gameMode)
+
+    // エンドレスモード用のリセット
+    this.endlessMochiIndex = 0
+    this.maxStackHeight = 0
+    this.isCollapsed = false
   }
 
   private setupPhysics() {
@@ -330,6 +414,14 @@ export class GameScene extends BaseScene {
     this.setupGroundBody()
     this.setupDaiBody()
     this.setupContactMaterials()
+
+    // MochiManagerの初期化
+    this.mochiManager = new MochiManager(
+      this.world!,
+      this.scene,
+      this.mochiMaterial!,
+      this.gameMode
+    )
 
     // 粘性マネージャーの初期化
     this.stickinessManager = new StickinessManager(this.world!)
@@ -373,10 +465,12 @@ export class GameScene extends BaseScene {
       'beginContact',
       (event: { bodyA: CANNON.Body; bodyB: CANNON.Body }) => {
         const { bodyA, bodyB } = event
+        if (!this.mochiManager) return
 
         // 両方が餅オブジェクト（地面・台座ではない）かをチェック
-        const isMochiA = this.launchedObjects.some((obj) => obj.body === bodyA)
-        const isMochiB = this.launchedObjects.some((obj) => obj.body === bodyB)
+        const allMochi = this.mochiManager.getAll()
+        const isMochiA = allMochi.some((m) => m.body === bodyA)
+        const isMochiB = allMochi.some((m) => m.body === bodyB)
 
         if (!isMochiA || !isMochiB) return
 
@@ -438,6 +532,9 @@ export class GameScene extends BaseScene {
     this.mainLight.castShadow = true
     this.mainLight.shadow.mapSize.width = 2048
     this.mainLight.shadow.mapSize.height = 2048
+    // シャドウアクネ（モアレ模様）防止
+    this.mainLight.shadow.bias = -0.0005
+    this.mainLight.shadow.normalBias = 0.02
     this.scene.add(this.mainLight)
 
     const spotLight = new THREE.SpotLight(0xffd700, 1, 30, Math.PI / 6, 0.5)
@@ -512,14 +609,27 @@ export class GameScene extends BaseScene {
   private createPreviewMesh() {
     this.removePreviewMesh()
 
-    const handler = MOCHI_HANDLERS[this.currentType]
-    const geometry = handler.createGeometry()
-    const material = handler.createMaterial(0.85)
+    const config = MOCHI_CONFIGS[this.currentType]
+    const geometry = this.createPreviewGeometry(config)
+    const material = new THREE.MeshStandardMaterial({
+      color: config.color,
+      roughness: config.roughness,
+      transparent: true,
+      opacity: 0.85,
+      side: THREE.DoubleSide
+    })
 
     this.previewMesh = new THREE.Mesh(geometry, material)
     this.previewMesh.castShadow = true
     this.previewMesh.position.copy(this.launchParams.launchPosition)
     this.scene.add(this.previewMesh)
+  }
+
+  private createPreviewGeometry(config: typeof MOCHI_CONFIGS[MochiType]): THREE.BufferGeometry {
+    if (config.type === 'mikan') {
+      return new THREE.SphereGeometry(config.radius, 32, 24)
+    }
+    return createMochiGeometry(config.radius, config.height)
   }
 
   private removePreviewMesh() {
@@ -547,8 +657,8 @@ export class GameScene extends BaseScene {
   }
 
   private getPhaseText(): string {
-    const handler = MOCHI_HANDLERS[this.currentType]
-    return `${handler.displayName} を発射！`
+    const config = MOCHI_CONFIGS[this.currentType]
+    return `${config.displayName} を発射！`
   }
 
   private setupEventListeners() {
@@ -634,11 +744,14 @@ export class GameScene extends BaseScene {
 
     updateUITextSprite(this.instructionSprite!, '飛んでいます...', 60, '#FFFFFF')
 
-    const obj = this.createLaunchObject()
-    this.currentObject = obj
-    this.launchedObjects.push(obj)
+    // MochiManagerで餅を作成
+    const mochi = this.mochiManager!.createMochi(
+      this.currentType,
+      this.launchParams.launchPosition
+    )
+    this.currentMochi = mochi
 
-    this.applyLaunchVelocity(obj)
+    this.applyLaunchVelocity(mochi)
 
     const launchDirection = calculateInitialVelocity(this.launchParams).normalize()
     this.effectManager?.emitSmoke(this.launchParams.launchPosition, launchDirection)
@@ -646,81 +759,64 @@ export class GameScene extends BaseScene {
     this.animateCameraForFlight()
   }
 
-  private applyLaunchVelocity(obj: LaunchedObject) {
+  private applyLaunchVelocity(mochi: MochiObject) {
     const velocity = calculateInitialVelocity(this.launchParams)
 
     const randomX = (Math.random() - 0.5) * 2
     const randomZ = (Math.random() - 0.5) * 1
 
-    obj.body.velocity.set(
+    mochi.setVelocity(new THREE.Vector3(
       velocity.x + randomX,
       velocity.y,
       velocity.z + randomZ
-    )
+    ))
 
-    obj.body.angularVelocity.set(
+    mochi.setAngularVelocity(new THREE.Vector3(
       (Math.random() - 0.5) * 5,
       (Math.random() - 0.5) * 5,
       (Math.random() - 0.5) * 5
-    )
+    ))
   }
 
   private animateCameraForFlight() {
     const hRad = degreesToRadians(this.launchParams.angleH)
 
-    gsap.to(this.game.camera.position, {
-      x: Math.sin(hRad) * 3,
-      y: 10,
-      z: 18,
+    const targetPos = new THREE.Vector3(
+      Math.sin(hRad) * 3,
+      10,
+      18
+    )
+    const targetLookAt = new THREE.Vector3(0, 0, 3)
+
+    // 初期位置へアニメーション後、餅を追従開始
+    this.game.cameraController.animateTo(targetPos, targetLookAt, {
       duration: 0.5,
-      onUpdate: () => {
-        this.game.camera.lookAt(0, 0, 3)
-      },
+      ease: 'power2.out',
       onComplete: () => {
-        this.game.camera.lookAt(0, 0, 3)
+        // 飛行中の餅を追従（ゆるやかに）
+        if (this.currentMochi && this.phase === 'flying') {
+          this.game.cameraController.startFollow(this.currentMochi.mesh, {
+            offset: new THREE.Vector3(0, 5, 12),
+            lookAtOffset: new THREE.Vector3(0, 0, 0),
+            smoothness: 0.92, // ゆるやかな追従
+            bounds: {
+              minY: 5,   // カメラが低くなりすぎない
+              maxY: 20   // 高くなりすぎない
+            }
+          })
+        }
       }
     })
-  }
-
-  private createLaunchObject(): LaunchedObject {
-    const handler = MOCHI_HANDLERS[this.currentType]
-
-    const geometry = handler.createGeometry()
-    const material = handler.createMaterial()
-    const shape = handler.createPhysicsShape()
-
-    const mesh = new THREE.Mesh(geometry, material)
-    mesh.castShadow = true
-    mesh.position.copy(this.launchParams.launchPosition)
-    this.scene.add(mesh)
-
-    const body = new CANNON.Body({
-      mass: handler.mass,
-      material: this.mochiMaterial!,
-      linearDamping: 0.4,
-      angularDamping: 0.6
-    })
-    body.addShape(shape)
-    const pos = this.launchParams.launchPosition
-    body.position.set(pos.x, pos.y, pos.z)
-    this.world!.addBody(body)
-
-    return { mesh, body, type: this.currentType }
   }
 
   private onObjectLanded() {
     this.phase = 'landed'
     this.game.audioManager.playLand()
 
-    const landingPos = new THREE.Vector3(
-      this.currentObject!.body.position.x,
-      this.currentObject!.body.position.y,
-      this.currentObject!.body.position.z
-    )
+    // 追従を停止
+    this.game.cameraController.stopFollow()
 
-    // カメラの現在位置を保存
-    const originalCameraPos = this.game.camera.position.clone()
-    const originalLookAt = new THREE.Vector3(0, 0, 5)
+    const landingPos = this.currentMochi!.position
 
     // ヒットストップ開始
     this.timeScale = 0.05
@@ -729,19 +825,24 @@ export class GameScene extends BaseScene {
     this.effectManager?.emitDust(landingPos, 1)
     this.effectManager?.triggerShockwave(landingPos)
 
+    // 着地エフェクト（シェイク）
+    this.game.cameraEffects?.triggerLandingEffect(0.5)
+
     updateUITextSprite(this.instructionSprite!, '', 60, '#00FF00')
+
+    // カメラの現在位置を保存してカット
+    const cutPosition = new THREE.Vector3(
+      landingPos.x + 2,
+      landingPos.y + 2,
+      landingPos.z + 3
+    )
 
     // ヒットストップ後にカメラカット
     gsap.timeline()
       .to({}, { duration: 0.15 }) // ヒットストップ維持
       .call(() => {
-        // カメラをお餅にカット（瞬時に移動）
-        this.game.camera.position.set(
-          landingPos.x + 2,
-          landingPos.y + 2,
-          landingPos.z + 3
-        )
-        this.game.camera.lookAt(landingPos)
+        // カメラをお餅にカット（瞬時に移動、元位置を保存）
+        this.game.cameraController.cutTo(cutPosition, landingPos, { saveState: true })
 
         // ヒットストップ解除
         gsap.to(this, {
@@ -753,17 +854,10 @@ export class GameScene extends BaseScene {
         // 文字表示（完了後にカメラを戻す）
         this.effectManager?.showCutIn('着地！', this.game.camera, () => {
           // カメラを元に戻す（スムーズに）
-          gsap.to(this.game.camera.position, {
-            x: originalCameraPos.x,
-            y: originalCameraPos.y,
-            z: originalCameraPos.z,
+          this.game.cameraController.returnToSaved({
             duration: 0.4,
             ease: 'power2.out',
-            onUpdate: () => {
-              this.game.camera.lookAt(originalLookAt)
-            },
             onComplete: () => {
-              this.game.camera.lookAt(originalLookAt)
               this.proceedToNextObject()
             }
           })
@@ -772,7 +866,18 @@ export class GameScene extends BaseScene {
   }
 
   private proceedToNextObject() {
-    const nextType = getNextMochiType(this.currentType)
+    if (this.gameMode === 'endless') {
+      // エンドレスモード: base → top → base → top ... のループ
+      this.endlessMochiIndex++
+      const sequence = ENDLESS_MODE_CONFIG.mochiSequence
+      this.currentType = sequence[this.endlessMochiIndex % sequence.length] as MochiType
+      this.resetForNextLaunch()
+      this.createPreviewMesh()
+      return
+    }
+
+    // 通常モード: base → top → mikan → 終了
+    const nextType = this.getNextMochiType(this.currentType)
 
     if (!nextType) {
       this.phase = 'complete'
@@ -783,6 +888,18 @@ export class GameScene extends BaseScene {
     this.currentType = nextType
     this.resetForNextLaunch()
     this.createPreviewMesh()
+  }
+
+  /**
+   * 通常モードの餅シーケンス
+   */
+  private getNextMochiType(current: MochiType): MochiType | null {
+    const sequence: Record<MochiType, MochiType | null> = {
+      base: 'top',
+      top: 'mikan',
+      mikan: null
+    }
+    return sequence[current]
   }
 
   private resetForNextLaunch() {
@@ -867,112 +984,60 @@ export class GameScene extends BaseScene {
   }
 
   private animateCameraToStart() {
-    gsap.to(this.game.camera.position, {
-      x: 0,
-      y: 12,
-      z: 22,
-      duration: 0.5,
-      onUpdate: () => {
-        this.game.camera.lookAt(0, 0, 5)
-      },
-      onComplete: () => {
-        this.game.camera.lookAt(0, 0, 5)
-      }
-    })
+    // game-defaultプリセットの位置へ戻る
+    const preset = this.game.cameraController.getPreset('game-default')
+    if (preset) {
+      this.game.cameraController.animateTo(preset.position, preset.lookAt, {
+        duration: 0.5,
+        ease: 'power2.out'
+      })
+    }
   }
 
   private calculateAndShowResult() {
-    const score = this.calculateScore()
+    // ScoreSystemを使ってスコア計算
+    const scoreResult = this.scoreSystem?.calculate(this.mochiManager!) ?? {
+      total: 0,
+      breakdown: [],
+      maxHeight: 0,
+      stackCount: 0,
+      isPerfect: false
+    }
 
     if (this.uiContainer) {
       this.uiContainer.visible = false
     }
 
-    gsap.timeline()
-      .to(this.game.camera.position, {
-        x: DAI_POSITION.x,
-        y: DAI_POSITION.y + 4,
-        z: DAI_POSITION.z + 5,
-        duration: 1.2,
-        ease: 'power2.inOut',
-        onUpdate: () => {
-          this.game.camera.lookAt(DAI_POSITION.x, DAI_POSITION.y + 1, DAI_POSITION.z)
-        }
-      })
-      .to(this.game.camera.position, {
-        y: DAI_POSITION.y + 2,
-        z: DAI_POSITION.z + 2,
-        duration: 0.6,
-        ease: 'power3.in',
-        onUpdate: () => {
-          this.game.camera.lookAt(DAI_POSITION.x, DAI_POSITION.y + 0.5, DAI_POSITION.z)
-        },
-        onComplete: () => {
-          this.game.postProcessManager?.enableMotionBlur(0.7, 0.6)
+    // 第1段階: 台座を見下ろす位置へ
+    const pos1 = new THREE.Vector3(DAI_POSITION.x, DAI_POSITION.y + 4, DAI_POSITION.z + 5)
+    const lookAt1 = new THREE.Vector3(DAI_POSITION.x, DAI_POSITION.y + 1, DAI_POSITION.z)
 
-          setTimeout(() => {
-            this.game.sceneManager.switchTo('result', { score })
-          }, 100)
-        }
-      })
-  }
+    this.game.cameraController.animateTo(pos1, lookAt1, {
+      duration: 1.2,
+      ease: 'power2.inOut',
+      onComplete: () => {
+        // 第2段階: 結果表示へズームイン
+        const pos2 = new THREE.Vector3(DAI_POSITION.x, DAI_POSITION.y + 2, DAI_POSITION.z + 2)
+        const lookAt2 = new THREE.Vector3(DAI_POSITION.x, DAI_POSITION.y + 0.5, DAI_POSITION.z)
 
-  private calculateScore(): number {
-    const positions = this.launchedObjects.map(obj => ({
-      type: obj.type,
-      x: obj.body.position.x,
-      y: obj.body.position.y,
-      z: obj.body.position.z
-    }))
+        this.game.cameraController.animateTo(pos2, lookAt2, {
+          duration: 0.6,
+          ease: 'power3.in',
+          onComplete: () => {
+            // 結果発表エフェクト
+            this.game.cameraEffects?.triggerResultZoomEffect()
 
-    const base = positions.find(p => p.type === 'base')
-    const top = positions.find(p => p.type === 'top')
-    const mikan = positions.find(p => p.type === 'mikan')
-
-    if (!base || !top || !mikan) return 0
-
-    let score = 0
-    score += this.calculateBaseScore(base)
-    score += this.calculateTopScore(top, base)
-    score += this.calculateMikanScore(mikan, top)
-
-    return Math.min(100, score)
-  }
-
-  private calculateBaseScore(base: { x: number; y: number; z: number }): number {
-    const dx = base.x - TARGET_POSITION.x
-    const dz = base.z - TARGET_POSITION.z
-    const distFromTarget = Math.sqrt(dx ** 2 + dz ** 2)
-
-    if (distFromTarget < 1.5 && base.y > -2 && base.y < 0) return 30
-    if (distFromTarget < 3) return 15
-    return 0
-  }
-
-  private calculateTopScore(
-    top: { x: number; y: number; z: number },
-    base: { x: number; y: number; z: number }
-  ): number {
-    const dist = Math.sqrt((top.x - base.x) ** 2 + (top.z - base.z) ** 2)
-    const isOnBase = dist < 1.2
-    const isAboveBase = top.y > base.y && top.y < base.y + 2
-
-    if (isOnBase && isAboveBase) return 35
-    if (dist < 2) return 15
-    return 0
-  }
-
-  private calculateMikanScore(
-    mikan: { x: number; y: number; z: number },
-    top: { x: number; y: number; z: number }
-  ): number {
-    const dist = Math.sqrt((mikan.x - top.x) ** 2 + (mikan.z - top.z) ** 2)
-    const isOnTop = dist < 0.8
-    const isAboveTop = mikan.y > top.y && mikan.y < top.y + 1.5
-
-    if (isOnTop && isAboveTop) return 35
-    if (dist < 1.5) return 15
-    return 0
+            setTimeout(() => {
+              const resultData: NormalResultData = {
+                mode: 'normal',
+                score: scoreResult.total
+              }
+              this.game.sceneManager.switchTo('result', resultData)
+            }, 100)
+          }
+        })
+      }
+    })
   }
 
   /**

@@ -8,11 +8,12 @@ import { createTextSprite, createPachinkoTextSprite } from '../ui/text-sprite'
 import { Button3D } from '../ui/button-3d'
 import { Slider3D } from '../ui/slider-3d'
 import { createPanel3D } from '../ui/panel-3d'
-import { createMochiGeometry } from './game/mochi-handler'
+import { createMochiGeometry } from '../objects'
 import { SkyGradient } from '../effects/SkyGradient'
 import { SnowEffect } from '../effects/SnowEffect'
 import { Kadomatsu } from '../objects/Kadomatsu'
 import { MountainFuji } from '../objects/MountainFuji'
+import type { GameMode } from '../types/game-mode'
 
 export class IntroScene extends BaseScene {
   private particles: THREE.Points | null = null
@@ -32,7 +33,8 @@ export class IntroScene extends BaseScene {
   private titleSubSprite: THREE.Sprite | null = null
   private subtitleSprite: THREE.Sprite | null = null
   private instructionSprite: THREE.Sprite | null = null
-  private startButton: Button3D | null = null
+  private normalModeButton: Button3D | null = null
+  private endlessModeButton: Button3D | null = null
   private settingsButton: Button3D | null = null
 
   // 設定パネル
@@ -340,29 +342,45 @@ export class IntroScene extends BaseScene {
     })
 
     this.instructionSprite = createTextSprite({
-      text: '餅を積み上げて100点を目指せ！',
+      text: 'ゲームモードを選択',
       fontSize: 32,
       color: '#cccccc'
     })
 
     // ボタン作成
-    const startButtonHeight = 0.9
+    const modeButtonHeight = 0.8
     const settingsButtonHeight = 0.7
-    this.startButton = new Button3D({
-      text: 'スタート',
+
+    // 通常モードボタン
+    this.normalModeButton = new Button3D({
+      text: '通常モード',
       width: 3.2,
-      height: startButtonHeight,
-      fontSize: 48,
+      height: modeButtonHeight,
+      fontSize: 44,
       onClick: async () => {
         this.game.audioManager.playClick()
-
-        // Audio 処理は非同期で実行（待たない）- iOS で永久 pending になる問題を回避
         this.game.audioManager.resume().catch(() => {})
-
-        // シーン遷移を即座に実行
-        await this.game.sceneManager.switchTo('game')
+        await this.startGame('normal')
       }
     })
+
+    // エンドレスモードボタン
+    this.endlessModeButton = new Button3D({
+      text: 'エンドレス',
+      width: 3.2,
+      height: modeButtonHeight,
+      fontSize: 44,
+      backgroundColor: 0xff6b6b,
+      hoverColor: 0xff8888,
+      activeColor: 0xff4444,
+      borderColor: 0xcc0000,
+      onClick: async () => {
+        this.game.audioManager.playClick()
+        this.game.audioManager.resume().catch(() => {})
+        await this.startGame('endless')
+      }
+    })
+
     this.settingsButton = new Button3D({
       text: '設定',
       width: 2.8,
@@ -385,7 +403,7 @@ export class IntroScene extends BaseScene {
       titleSub: this.titleSubSprite.scale.y,
       subtitle: this.subtitleSprite.scale.y,
       instruction: this.instructionSprite.scale.y,
-      startBtn: startButtonHeight,
+      modeBtn: modeButtonHeight,
       settingsBtn: settingsButtonHeight
     }
 
@@ -394,8 +412,9 @@ export class IntroScene extends BaseScene {
       titleToSub: 0.05,      // 鏡餅 - スタッキング間（タイト）
       subToGreeting: 0.3,    // スタッキング - あけおめ間
       greetingToInst: 0.15,  // あけおめ - 説明間
-      instToStart: 0.4,      // 説明 - スタートボタン間
-      startToSettings: 0.25  // スタート - 設定ボタン間
+      instToNormal: 0.35,    // 説明 - 通常モードボタン間
+      normalToEndless: 0.2,  // 通常 - エンドレスボタン間
+      endlessToSettings: 0.2 // エンドレス - 設定ボタン間
     }
 
     // 全体の高さを計算
@@ -407,9 +426,11 @@ export class IntroScene extends BaseScene {
       heights.subtitle +
       gaps.greetingToInst +
       heights.instruction +
-      gaps.instToStart +
-      heights.startBtn +
-      gaps.startToSettings +
+      gaps.instToNormal +
+      heights.modeBtn +
+      gaps.normalToEndless +
+      heights.modeBtn +
+      gaps.endlessToSettings +
       heights.settingsBtn
 
     // 中央揃えの基準点（元のレイアウトの中心付近）
@@ -431,11 +452,15 @@ export class IntroScene extends BaseScene {
 
     currentY -= heights.instruction / 2
     this.instructionSprite.position.set(0, currentY, 0)
-    currentY -= heights.instruction / 2 + gaps.instToStart
+    currentY -= heights.instruction / 2 + gaps.instToNormal
 
-    currentY -= heights.startBtn / 2
-    this.startButton.position.set(0, currentY, 0)
-    currentY -= heights.startBtn / 2 + gaps.startToSettings
+    currentY -= heights.modeBtn / 2
+    this.normalModeButton.position.set(0, currentY, 0)
+    currentY -= heights.modeBtn / 2 + gaps.normalToEndless
+
+    currentY -= heights.modeBtn / 2
+    this.endlessModeButton.position.set(0, currentY, 0)
+    currentY -= heights.modeBtn / 2 + gaps.endlessToSettings
 
     currentY -= heights.settingsBtn / 2
     this.settingsButton.position.set(0, currentY, 0)
@@ -445,7 +470,8 @@ export class IntroScene extends BaseScene {
     this.uiGroup.add(this.titleSubSprite)
     this.uiGroup.add(this.subtitleSprite)
     this.uiGroup.add(this.instructionSprite)
-    this.uiGroup.add(this.startButton)
+    this.uiGroup.add(this.normalModeButton)
+    this.uiGroup.add(this.endlessModeButton)
     this.uiGroup.add(this.settingsButton)
 
     // 設定パネルを作成
@@ -675,13 +701,21 @@ export class IntroScene extends BaseScene {
     const buttons: Button3D[] = []
 
     if (!this.settingsOpen) {
-      if (this.startButton) buttons.push(this.startButton)
+      if (this.normalModeButton) buttons.push(this.normalModeButton)
+      if (this.endlessModeButton) buttons.push(this.endlessModeButton)
       if (this.settingsButton) buttons.push(this.settingsButton)
     } else {
       if (this.closeSettingsButton) buttons.push(this.closeSettingsButton)
     }
 
     return buttons
+  }
+
+  /**
+   * ゲームを開始
+   */
+  private async startGame(mode: GameMode): Promise<void> {
+    await this.game.sceneManager.switchTo('game', { mode })
   }
 
   private getInteractiveSliders(): Slider3D[] {

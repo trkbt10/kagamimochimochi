@@ -2,6 +2,8 @@ import * as THREE from 'three'
 import { SceneManager } from './SceneManager'
 import { AudioManager } from './AudioManager'
 import { LayoutManager } from './layout'
+import { CameraController } from './CameraController'
+import { CameraEffectsManager } from './CameraEffectsManager'
 import { PostProcessManager } from '../postprocess'
 import { IntroScene } from '../scenes/IntroScene'
 import { GameScene } from '../scenes/GameScene'
@@ -13,6 +15,8 @@ export class Game {
   public sceneManager: SceneManager
   public audioManager: AudioManager
   public layoutManager: LayoutManager
+  public cameraController: CameraController
+  public cameraEffects: CameraEffectsManager | null = null
   public postProcessManager: PostProcessManager | null = null
   public clock: THREE.Clock
 
@@ -25,6 +29,7 @@ export class Game {
     this.sceneManager = new SceneManager(this)
     this.audioManager = new AudioManager()
     this.layoutManager = new LayoutManager(this.camera)
+    this.cameraController = new CameraController(this.camera)
     this.clock = new THREE.Clock()
   }
 
@@ -62,6 +67,11 @@ export class Game {
         this.renderer,
         introScene.getThreeScene(),
         this.camera
+      )
+      // Initialize camera effects manager with post processing
+      this.cameraEffects = new CameraEffectsManager(
+        this.postProcessManager,
+        this.cameraController
       )
     }
   }
@@ -102,6 +112,10 @@ export class Game {
     requestAnimationFrame(this.animate.bind(this))
 
     const delta = this.clock.getDelta()
+
+    // Update camera controller
+    this.cameraController.update(delta)
+
     this.sceneManager.update(delta)
 
     const currentScene = this.sceneManager.getCurrentScene()

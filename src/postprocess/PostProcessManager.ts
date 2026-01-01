@@ -4,11 +4,13 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js'
 import { gsap } from 'gsap'
 import { MotionBlurShader } from './MotionBlurShader'
+import { ZoomLinesShader } from './ZoomLinesShader'
 
 export class PostProcessManager {
   private composer: EffectComposer
   private renderPass: RenderPass
   private motionBlurPass: ShaderPass
+  private zoomLinesPass: ShaderPass
   private _enabled = false
   private isMobile: boolean
 
@@ -27,6 +29,10 @@ export class PostProcessManager {
     this.motionBlurPass = new ShaderPass(MotionBlurShader)
     this.motionBlurPass.enabled = false
     this.composer.addPass(this.motionBlurPass)
+
+    this.zoomLinesPass = new ShaderPass(ZoomLinesShader)
+    this.zoomLinesPass.enabled = false
+    this.composer.addPass(this.zoomLinesPass)
   }
 
   private detectMobile(): boolean {
@@ -54,9 +60,31 @@ export class PostProcessManager {
       ease: 'power2.out',
       onComplete: () => {
         this.motionBlurPass.enabled = false
-        this._enabled = false
+        this.updateEnabledState()
       }
     })
+  }
+
+  enableZoomLines(intensity: number = 0.7, duration: number = 0.5) {
+    if (this.isMobile) return
+
+    this.zoomLinesPass.uniforms.intensity.value = intensity
+    this.zoomLinesPass.enabled = true
+    this._enabled = true
+
+    gsap.to(this.zoomLinesPass.uniforms.intensity, {
+      value: 0,
+      duration: duration,
+      ease: 'power2.out',
+      onComplete: () => {
+        this.zoomLinesPass.enabled = false
+        this.updateEnabledState()
+      }
+    })
+  }
+
+  private updateEnabledState() {
+    this._enabled = this.motionBlurPass.enabled || this.zoomLinesPass.enabled
   }
 
   get enabled(): boolean {

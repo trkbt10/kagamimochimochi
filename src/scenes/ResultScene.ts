@@ -7,11 +7,13 @@ import { redistributeParticles, calculateLayoutScale } from '../core/layout'
 import { createTextSprite } from '../ui/text-sprite'
 import { Button3D } from '../ui/button-3d'
 import { createConfettiSystem, updateConfetti } from '../ui/confetti'
-import { createMochiGeometry } from './game/mochi-handler'
+import { createMochiGeometry } from '../objects'
 import { GlitterScoreRenderer } from '../effects'
 import { SkyGradient } from '../effects/SkyGradient'
 import { SnowEffect } from '../effects/SnowEffect'
 import { MountainFuji } from '../objects/MountainFuji'
+import type { GameMode } from '../types/game-mode'
+import type { NormalResultData, EndlessResultData, GameToResultData } from '../types/scene-data'
 
 type ScoreTier = 'perfect' | 'excellent' | 'good' | 'average' | 'poor' | 'fail'
 
@@ -103,6 +105,10 @@ export class ResultScene extends BaseScene {
   private kagamimochi: THREE.Group | null = null
   private confetti: THREE.Points | null = null
 
+  // ゲームモード関連
+  private gameMode: GameMode = 'normal'
+  private resultData: GameToResultData | null = null
+
   // お正月演出
   private skyGradient: SkyGradient | null = null
   private snowEffect: SnowEffect | null = null
@@ -116,6 +122,7 @@ export class ResultScene extends BaseScene {
   private ratingTextSprite: THREE.Sprite | null = null
   private backButton: Button3D | null = null
   private shareButton: Button3D | null = null
+  private endlessStatsSprite: THREE.Sprite | null = null
 
   // Raycaster
   private raycaster = new THREE.Raycaster()
@@ -141,7 +148,17 @@ export class ResultScene extends BaseScene {
   }
 
   async enter(data?: Record<string, unknown>) {
-    this.score = (data?.score as number) ?? 0
+    // ゲームモードとデータを解析
+    this.gameMode = (data?.mode as GameMode) ?? 'normal'
+    this.resultData = data as GameToResultData | null
+
+    if (this.gameMode === 'normal') {
+      this.score = (data as NormalResultData)?.score ?? 0
+    } else {
+      // エンドレスモードでは高さをスコア的に表示
+      const endlessData = data as EndlessResultData
+      this.score = Math.round((endlessData?.maxHeight ?? 0) * 10)
+    }
     this.displayedScore = 0
 
     // カメラ位置を明示的にリセット
@@ -153,8 +170,27 @@ export class ResultScene extends BaseScene {
     this.registerLayoutListener()
     this.playResultAnimation()
 
-    const tierConfig = getScoreTierConfig(this.score)
+    const tierConfig = this.getResultTierConfig()
     this.playResultAudio(tierConfig.isSuccess)
+  }
+
+  /**
+   * モードに応じた結果判定を取得
+   */
+  private getResultTierConfig(): ScoreTierConfig {
+    if (this.gameMode === 'endless') {
+      const endlessData = this.resultData as EndlessResultData
+      const height = endlessData?.maxHeight ?? 0
+
+      // エンドレスモード用の評価基準
+      if (height >= 5) return SCORE_TIER_CONFIGS.perfect
+      if (height >= 3) return SCORE_TIER_CONFIGS.excellent
+      if (height >= 2) return SCORE_TIER_CONFIGS.good
+      if (height >= 1) return SCORE_TIER_CONFIGS.average
+      return SCORE_TIER_CONFIGS.poor
+    }
+
+    return getScoreTierConfig(this.score)
   }
 
   private resetCamera() {
@@ -219,7 +255,7 @@ export class ResultScene extends BaseScene {
   }
 
   private setupScene() {
-    const tierConfig = getScoreTierConfig(this.score)
+    const tierConfig = this.getResultTierConfig()
 
     // 初日の出の空（timeOfDay = 1.0）
     this.skyGradient = new SkyGradient()
@@ -259,7 +295,7 @@ export class ResultScene extends BaseScene {
   }
 
   private createParticles() {
-    const tierConfig = getScoreTierConfig(this.score)
+    const tierConfig = this.getResultTierConfig()
     const count = 300
     const positions = new Float32Array(count * 3)
     const colors = new Float32Array(count * 3)
@@ -351,46 +387,11 @@ export class ResultScene extends BaseScene {
 
     const rating = this.getRating()
 
-    // スコアラベル
-    this.scoreLabelSprite = createTextSprite({
-      text: 'YOUR SCORE',
-      fontSize: 44,
-      color: '#ffffff'
-    })
-    this.scoreLabelSprite.position.set(0, 3.0, 0)
-    this.uiGroup.add(this.scoreLabelSprite)
-
-    // ギラギラスコアレンダラー初期化
-    this.glitterScoreRenderer = new GlitterScoreRenderer(this.scene)
-
-    // 初期スコア表示（0から始まる）
-    this.scoreSprite = this.glitterScoreRenderer.createScoreDisplay(0)
-    this.scoreSprite.position.set(0, 1.7, 0)
-    this.scoreSprite.scale.multiplyScalar(2)
-    this.glitterScoreRenderer.getGroup().position.copy(this.uiGroup.position)
-    this.glitterScoreRenderer.getGroup().position.y += 1.7
-
-    // 評価絵文字
-    this.ratingSprite = createTextSprite({
-      text: rating.emoji,
-      fontSize: 80,
-      color: '#ffffff'
-    })
-    this.ratingSprite.position.set(0, 0.2, 0)
-    this.ratingSprite.scale.set(0, 0, 0) // アニメーション用に初期化
-    this.uiGroup.add(this.ratingSprite)
-
-    // 評価テキスト
-    this.ratingTextSprite = createTextSprite({
-      text: rating.text,
-      fontSize: 40,
-      color: '#ffffff',
-      shadowColor: 'rgba(0,0,0,0.8)',
-      shadowBlur: 4
-    })
-    this.ratingTextSprite.position.set(0, -0.8, 0)
-    this.ratingTextSprite.material.opacity = 0 // アニメーション用に初期化
-    this.uiGroup.add(this.ratingTextSprite)
+    if (this.gameMode === 'endless') {
+      this.buildEndlessUI(rating)
+    } else {
+      this.buildNormalUI(rating)
+    }
 
     // シェアボタン
     this.shareButton = new Button3D({
@@ -408,7 +409,7 @@ export class ResultScene extends BaseScene {
       }
     })
     this.shareButton.position.set(0, -2.0, 0)
-    this.uiGroup.add(this.shareButton)
+    this.uiGroup!.add(this.shareButton)
 
     // タイトルに戻るボタン
     this.backButton = new Button3D({
@@ -422,11 +423,115 @@ export class ResultScene extends BaseScene {
       }
     })
     this.backButton.position.set(0, -3.2, 0)
-    this.uiGroup.add(this.backButton)
+    this.uiGroup!.add(this.backButton)
+  }
+
+  /**
+   * 通常モード用UI
+   */
+  private buildNormalUI(rating: { emoji: string; text: string }) {
+    // スコアラベル
+    this.scoreLabelSprite = createTextSprite({
+      text: 'YOUR SCORE',
+      fontSize: 44,
+      color: '#ffffff'
+    })
+    this.scoreLabelSprite.position.set(0, 3.0, 0)
+    this.uiGroup!.add(this.scoreLabelSprite)
+
+    // ギラギラスコアレンダラー初期化
+    this.glitterScoreRenderer = new GlitterScoreRenderer(this.scene)
+
+    // 初期スコア表示（0から始まる）
+    this.scoreSprite = this.glitterScoreRenderer.createScoreDisplay(0)
+    this.scoreSprite.position.set(0, 1.7, 0)
+    this.scoreSprite.scale.multiplyScalar(2)
+    this.glitterScoreRenderer.getGroup().position.copy(this.uiGroup!.position)
+    this.glitterScoreRenderer.getGroup().position.y += 1.7
+
+    // 評価絵文字
+    this.ratingSprite = createTextSprite({
+      text: rating.emoji,
+      fontSize: 80,
+      color: '#ffffff'
+    })
+    this.ratingSprite.position.set(0, 0.2, 0)
+    this.ratingSprite.scale.set(0, 0, 0)
+    this.uiGroup!.add(this.ratingSprite)
+
+    // 評価テキスト
+    this.ratingTextSprite = createTextSprite({
+      text: rating.text,
+      fontSize: 40,
+      color: '#ffffff',
+      shadowColor: 'rgba(0,0,0,0.8)',
+      shadowBlur: 4
+    })
+    this.ratingTextSprite.position.set(0, -0.8, 0)
+    this.ratingTextSprite.material.opacity = 0
+    this.uiGroup!.add(this.ratingTextSprite)
+  }
+
+  /**
+   * エンドレスモード用UI
+   */
+  private buildEndlessUI(rating: { emoji: string; text: string }) {
+    const endlessData = this.resultData as EndlessResultData
+
+    // エンドレスモードラベル
+    this.scoreLabelSprite = createTextSprite({
+      text: 'ENDLESS MODE',
+      fontSize: 44,
+      color: '#ff6b6b'
+    })
+    this.scoreLabelSprite.position.set(0, 3.2, 0)
+    this.uiGroup!.add(this.scoreLabelSprite)
+
+    // 最大高度表示用のギラギラスコアレンダラー
+    this.glitterScoreRenderer = new GlitterScoreRenderer(this.scene)
+    this.scoreSprite = this.glitterScoreRenderer.createScoreDisplay(0)
+    this.scoreSprite.position.set(0, 2.0, 0)
+    this.scoreSprite.scale.multiplyScalar(1.5)
+    this.glitterScoreRenderer.getGroup().position.copy(this.uiGroup!.position)
+    this.glitterScoreRenderer.getGroup().position.y += 2.0
+
+    // 統計情報（餅数・時間）
+    const statsText = `餅: ${endlessData?.mochiCount ?? 0}個 / ${endlessData?.survivalTime ?? 0}秒`
+    this.endlessStatsSprite = createTextSprite({
+      text: statsText,
+      fontSize: 36,
+      color: '#ffffff',
+      shadowColor: 'rgba(0,0,0,0.8)',
+      shadowBlur: 4
+    })
+    this.endlessStatsSprite.position.set(0, 0.8, 0)
+    this.uiGroup!.add(this.endlessStatsSprite)
+
+    // 評価絵文字
+    this.ratingSprite = createTextSprite({
+      text: rating.emoji,
+      fontSize: 70,
+      color: '#ffffff'
+    })
+    this.ratingSprite.position.set(0, -0.1, 0)
+    this.ratingSprite.scale.set(0, 0, 0)
+    this.uiGroup!.add(this.ratingSprite)
+
+    // 評価テキスト
+    this.ratingTextSprite = createTextSprite({
+      text: rating.text,
+      fontSize: 36,
+      color: '#ffffff',
+      shadowColor: 'rgba(0,0,0,0.8)',
+      shadowBlur: 4
+    })
+    this.ratingTextSprite.position.set(0, -1.0, 0)
+    this.ratingTextSprite.material.opacity = 0
+    this.uiGroup!.add(this.ratingTextSprite)
   }
 
   private getRating(): { emoji: string; text: string } {
-    const config = getScoreTierConfig(this.score)
+    const config = this.getResultTierConfig()
     return { emoji: config.emoji, text: config.text }
   }
 
@@ -517,7 +622,19 @@ export class ResultScene extends BaseScene {
 
   private shareToTwitter() {
     const rating = this.getRating()
-    const text = `🎍 鏡餅スタッキングゲーム 🎍\n\nスコア: ${this.score}点\n${rating.emoji} ${rating.text}\n\n#鏡餅スタッキング #あけおめ`
+    let text: string
+
+    if (this.gameMode === 'endless') {
+      const endlessData = this.resultData as EndlessResultData
+      text = `🎍 鏡餅スタッキング【エンドレス】🎍\n\n` +
+        `高さ: ${endlessData?.maxHeight ?? 0}m\n` +
+        `餅: ${endlessData?.mochiCount ?? 0}個\n` +
+        `${rating.emoji} ${rating.text}\n\n` +
+        `#鏡餅スタッキング #あけおめ`
+    } else {
+      text = `🎍 鏡餅スタッキングゲーム 🎍\n\nスコア: ${this.score}点\n${rating.emoji} ${rating.text}\n\n#鏡餅スタッキング #あけおめ`
+    }
+
     const url = encodeURIComponent(window.location.href)
     const tweetUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${url}`
     window.open(tweetUrl, '_blank')
