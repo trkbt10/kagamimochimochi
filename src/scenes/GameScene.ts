@@ -854,6 +854,7 @@ export class GameScene extends BaseScene {
 
   private onObjectLanded() {
     this.phase = 'landed'
+    this.currentMochi!.setState('landing')
     this.game.cameraController.stopFollow()
 
     const landingPos = this.currentMochi!.position
