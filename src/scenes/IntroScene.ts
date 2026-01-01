@@ -263,7 +263,7 @@ export class IntroScene extends BaseScene {
       this.titleContainer = new THREE.Group()
       this.titleContainer.add(this.title3D.getGroup())
       // スケール調整（SVGサイズに合わせる）
-      const titleScale = 0.018
+      const titleScale = 0.012*2
       this.titleContainer.scale.set(titleScale, titleScale, titleScale)
       // 局所ライトを追加（金色がよく見えるように）
       const titleLight = new THREE.PointLight(0xffffff, 1.5, 10)
@@ -533,12 +533,12 @@ export class IntroScene extends BaseScene {
     if (layout.mode === 'portrait') {
       // 縦画面: カメラを遠くに配置
       const zoomOut = 1 / layout.screenAspect
-      this.game.camera.position.set(0, 5, 12 + (zoomOut - 1) * 6)
+      this.game.camera.position.set(0, 4, 12 + (zoomOut - 1) * 6)
     } else {
       // 横画面: 通常の設定
       this.game.camera.position.set(0, 5, 12)
     }
-    this.game.camera.lookAt(0, 2, 0)
+    this.game.camera.lookAt(0, 4, 0)
 
     // UIグループのスケールを調整（新しいデフォルト0.8を使用）
     if (this.uiGroup) {
