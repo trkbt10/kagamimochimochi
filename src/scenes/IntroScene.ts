@@ -8,7 +8,7 @@ import { createTextSprite, createPachinkoTextSprite } from '../ui/text-sprite'
 import { Button3D } from '../ui/button-3d'
 import { Slider3D } from '../ui/slider-3d'
 import { createPanel3D } from '../ui/panel-3d'
-import { createMochiGeometry } from '../objects'
+import { PhysicsContext, DecorativeMochiGroup } from '../objects'
 import { SkyGradient } from '../effects/SkyGradient'
 import { SnowEffect } from '../effects/SnowEffect'
 import { Kadomatsu } from '../objects/Kadomatsu'
@@ -17,7 +17,8 @@ import type { GameMode } from '../types/game-mode'
 
 export class IntroScene extends BaseScene {
   private particles: THREE.Points | null = null
-  private kagamimochi: THREE.Group | null = null
+  private physicsContext: PhysicsContext | null = null
+  private decorativeMochi: DecorativeMochiGroup | null = null
   private settingsOpen = false
 
   // お正月演出
@@ -86,6 +87,12 @@ export class IntroScene extends BaseScene {
     this.kadomatsuRight = null
     this.mountain = null
 
+    // 鏡餅のクリーンアップ
+    this.decorativeMochi?.dispose()
+    this.physicsContext?.dispose()
+    this.decorativeMochi = null
+    this.physicsContext = null
+
     this.clearScene()
   }
 
@@ -99,10 +106,19 @@ export class IntroScene extends BaseScene {
       this.particles.rotation.y += delta * 0.1
     }
 
-    // Gentle float animation for kagamimochi
-    if (this.kagamimochi) {
-      this.kagamimochi.position.y = 0.5 + Math.sin(Date.now() * 0.002) * 0.2
-      this.kagamimochi.rotation.y += delta * 0.3
+    // 物理演算と鏡餅の浮遊アニメーション
+    if (this.physicsContext && this.decorativeMochi) {
+      this.physicsContext.step(delta)
+
+      // 浮遊力を適用（sin波で揺らぎ）
+      const time = Date.now() * 0.002
+      this.decorativeMochi.applyFloatForce(time, 5.0)
+
+      // メッシュを物理ボディに同期
+      this.decorativeMochi.update(delta)
+
+      // グループ全体を回転
+      this.decorativeMochi.group.rotation.y += delta * 0.3
     }
 
     // UIをカメラに向ける
@@ -224,62 +240,20 @@ export class IntroScene extends BaseScene {
   }
 
   private createDecorativeKagamimochi() {
-    this.kagamimochi = new THREE.Group()
-
-    // Dai (stand)
-    const daiGeometry = new THREE.CylinderGeometry(1.8, 2, 0.3, 32)
-    const daiMaterial = new THREE.MeshStandardMaterial({
-      color: 0x8B4513,
-      roughness: 0.6,
-      metalness: 0.2
+    // 弱い重力の物理コンテキストを作成（浮遊感を演出）
+    this.physicsContext = new PhysicsContext({
+      gravity: { x: 0, y: -3, z: 0 } as any
     })
-    const dai = new THREE.Mesh(daiGeometry, daiMaterial)
-    dai.position.y = -1.5
-    dai.castShadow = true
-    dai.receiveShadow = true
-    this.kagamimochi.add(dai)
 
-    // Bottom mochi（下が広い鏡餅型）
-    const bottomMochiGeometry = createMochiGeometry(1.5, 0.75)
-    const mochiMaterial = new THREE.MeshStandardMaterial({
-      color: 0xfff8e7,
-      roughness: 0.9,
-      metalness: 0.0
+    // 装飾用鏡餅グループを作成（台座と葉を含む）
+    this.decorativeMochi = new DecorativeMochiGroup({
+      includeDai: true,
+      includeLeaf: true,
+      physicsContext: this.physicsContext,
+      initialPosition: new THREE.Vector3(0, 0.5, 0)
     })
-    const bottomMochi = new THREE.Mesh(bottomMochiGeometry, mochiMaterial)
-    bottomMochi.position.y = -0.9
-    bottomMochi.castShadow = true
-    this.kagamimochi.add(bottomMochi)
 
-    // Top mochi（下が広い鏡餅型）
-    const topMochiGeometry = createMochiGeometry(1.1, 0.55)
-    const topMochi = new THREE.Mesh(topMochiGeometry, mochiMaterial)
-    topMochi.position.y = -0.2
-    topMochi.castShadow = true
-    this.kagamimochi.add(topMochi)
-
-    // Mikan
-    const mikanGeometry = new THREE.SphereGeometry(0.5, 32, 24)
-    const mikanMaterial = new THREE.MeshStandardMaterial({
-      color: 0xff8c00,
-      roughness: 0.8,
-      metalness: 0.0
-    })
-    const mikan = new THREE.Mesh(mikanGeometry, mikanMaterial)
-    mikan.position.y = 0.5
-    mikan.castShadow = true
-    this.kagamimochi.add(mikan)
-
-    // Leaf on mikan
-    const leafGeometry = new THREE.BoxGeometry(0.3, 0.02, 0.15)
-    const leafMaterial = new THREE.MeshStandardMaterial({ color: 0x228B22 })
-    const leaf = new THREE.Mesh(leafGeometry, leafMaterial)
-    leaf.position.set(0, 0.75, 0)
-    leaf.rotation.z = Math.PI / 6
-    this.kagamimochi.add(leaf)
-
-    this.kagamimochi.position.y = 0.5
-    this.scene.add(this.kagamimochi)
+    this.decorativeMochi.addToScene(this.scene)
   }
 
   private createFloor() {
@@ -770,8 +744,8 @@ export class IntroScene extends BaseScene {
     })
 
     // Animate kagamimochi
-    if (this.kagamimochi) {
-      gsap.from(this.kagamimochi.scale, {
+    if (this.decorativeMochi) {
+      gsap.from(this.decorativeMochi.group.scale, {
         x: 0,
         y: 0,
         z: 0,

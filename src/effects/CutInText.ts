@@ -1,102 +1,23 @@
 import * as THREE from 'three'
 import { gsap } from 'gsap'
+import { ExtrudedText, TEXT_PATHS, type ExtrudeTextOptions } from '../text-builder'
 
-type CutInOptions = {
-  fontSize?: number
-  textColor?: string
-  glowColor?: string
-  shadowColor?: string
-}
-
-function getResponsiveFontSize(): number {
-  const width = window.innerWidth
-  if (width < 480) return 60
-  if (width < 768) return 80
-  return 100
-}
-
-const DEFAULT_OPTIONS: Required<CutInOptions> = {
-  fontSize: 100,
-  textColor: '#FFFFFF',
-  glowColor: '#FFD700',
-  shadowColor: '#000000'
-}
-
-function createGlitterTextCanvas(text: string, options: Required<CutInOptions>): HTMLCanvasElement {
-  const canvas = document.createElement('canvas')
-  const ctx = canvas.getContext('2d')!
-
-  const dpr = Math.min(window.devicePixelRatio || 1, 2)
-  const padding = 60
-
-  ctx.font = `bold ${options.fontSize}px sans-serif`
-  const textMetrics = ctx.measureText(text)
-  const textWidth = textMetrics.width
-  const textHeight = options.fontSize * 1.3
-
-  canvas.width = (textWidth + padding * 2) * dpr
-  canvas.height = (textHeight + padding * 2) * dpr
-  ctx.scale(dpr, dpr)
-
-  const width = textWidth + padding * 2
-  const height = textHeight + padding * 2
-  const centerX = width / 2
-  const centerY = height / 2
-
-  ctx.font = `bold ${options.fontSize}px sans-serif`
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
-
-  // ドロップシャドウ（複数レイヤーで深み）
-  ctx.shadowColor = options.shadowColor
-  ctx.shadowBlur = 20
-  ctx.shadowOffsetX = 6
-  ctx.shadowOffsetY = 6
-  ctx.fillStyle = options.shadowColor
-  ctx.fillText(text, centerX, centerY)
-
-  // グロー効果
-  ctx.shadowColor = options.glowColor
-  ctx.shadowBlur = 30
-  ctx.shadowOffsetX = 0
-  ctx.shadowOffsetY = 0
-  ctx.fillStyle = options.glowColor
-  ctx.fillText(text, centerX, centerY)
-
-  // メイン金属グラデーション
-  ctx.shadowBlur = 0
-  const gradient = ctx.createLinearGradient(0, centerY - options.fontSize / 2, 0, centerY + options.fontSize / 2)
-  gradient.addColorStop(0, '#FFFACD')
-  gradient.addColorStop(0.2, '#FFD700')
-  gradient.addColorStop(0.4, '#FFA500')
-  gradient.addColorStop(0.6, '#FFD700')
-  gradient.addColorStop(0.8, '#FFFACD')
-  gradient.addColorStop(1, '#DAA520')
-
-  ctx.fillStyle = gradient
-  ctx.fillText(text, centerX, centerY)
-
-  // 縁取り
-  ctx.strokeStyle = '#B8860B'
-  ctx.lineWidth = 3
-  ctx.strokeText(text, centerX, centerY)
-
-  // ハイライト（上部光沢）
-  const highlightGradient = ctx.createLinearGradient(0, centerY - options.fontSize / 2, 0, centerY)
-  highlightGradient.addColorStop(0, 'rgba(255, 255, 255, 0.7)')
-  highlightGradient.addColorStop(1, 'rgba(255, 255, 255, 0)')
-  ctx.fillStyle = highlightGradient
-  ctx.fillText(text, centerX, centerY)
-
-  return canvas
+const DEFAULT_OPTIONS: ExtrudeTextOptions = {
+  depth: 8,
+  bevelThickness: 2,
+  bevelSize: 1.5,
+  bevelSegments: 5,
+  frontColor: 0x88ee44, // ライムグリーン
+  sideColor: 0x225522, // ダークグリーン
 }
 
 export class CutInText {
-  private sprite: THREE.Sprite | null = null
-  private material: THREE.SpriteMaterial | null = null
+  private extrudedText: ExtrudedText | null = null
+  private container: THREE.Group | null = null
   private scene: THREE.Scene
   private timeline: gsap.core.Timeline | null = null
   private onCompleteCallback: (() => void) | null = null
+  private localLight: THREE.PointLight | null = null
 
   constructor(scene: THREE.Scene) {
     this.scene = scene
@@ -105,107 +26,97 @@ export class CutInText {
   show(
     text: string,
     camera: THREE.Camera,
-    options: CutInOptions = {},
+    options: Partial<ExtrudeTextOptions> = {},
     onComplete?: () => void
   ) {
     this.hide()
     this.onCompleteCallback = onComplete || null
 
-    const responsiveFontSize = getResponsiveFontSize()
-    const mergedOptions = { ...DEFAULT_OPTIONS, fontSize: responsiveFontSize, ...options }
-    const canvas = createGlitterTextCanvas(text, mergedOptions)
+    const svgPath = TEXT_PATHS[text]
+    if (!svgPath) {
+      console.warn(`No SVG path defined for: ${text}`)
+      // フォールバック：パスが無い場合はコールバックを即座に実行
+      onComplete?.()
+      return
+    }
 
-    const texture = new THREE.CanvasTexture(canvas)
-    texture.needsUpdate = true
+    const mergedOptions = { ...DEFAULT_OPTIONS, ...options }
+    this.extrudedText = new ExtrudedText(svgPath, mergedOptions)
 
-    this.material = new THREE.SpriteMaterial({
-      map: texture,
-      transparent: true,
-      opacity: 0,
-      depthTest: false,
-      depthWrite: false
-    })
+    // コンテナグループを作成（位置調整用）
+    this.container = new THREE.Group()
+    this.container.add(this.extrudedText.getGroup())
 
-    this.sprite = new THREE.Sprite(this.material)
+    // スケール調整（SVGのサイズに応じて調整）
+    // ExtrudedTextでY軸反転(-1)が設定されているため、containerでスケール調整
+    const scale = 0.02
+    this.container.scale.set(scale, scale, scale)
 
-    const aspect = canvas.width / canvas.height
-    const baseScale = window.innerWidth < 768 ? 2.5 : 3.5
-    this.sprite.scale.set(baseScale * aspect, baseScale, 1)
+    // 局所ライトを追加（カメラ前方でも見えるように）
+    this.localLight = new THREE.PointLight(0xffffff, 2.0, 20)
+    this.localLight.position.set(0, 0, 3) // テキスト前方
+    this.container.add(this.localLight)
 
-    this.updatePositionToCamera(camera)
-    this.scene.add(this.sprite)
+    // カメラ前方に配置
+    this.positionInFrontOfCamera(this.container, camera)
+    this.scene.add(this.container)
 
     this.playAnimation()
   }
 
-  private updatePositionToCamera(camera: THREE.Camera) {
-    if (!this.sprite) return
-
+  private positionInFrontOfCamera(group: THREE.Group, camera: THREE.Camera) {
     const forward = new THREE.Vector3(0, 0, -1)
     forward.applyQuaternion(camera.quaternion)
 
-    this.sprite.position.copy(camera.position)
-    this.sprite.position.add(forward.multiplyScalar(4))
-    this.sprite.quaternion.copy(camera.quaternion)
+    group.position.copy(camera.position)
+    group.position.add(forward.multiplyScalar(4))
+    group.quaternion.copy(camera.quaternion)
   }
 
   private playAnimation() {
-    if (!this.sprite || !this.material) return
+    if (!this.container || !this.extrudedText) return
 
-    const originalScale = this.sprite.scale.clone()
+    const originalScale = this.container.scale.clone()
 
-    this.sprite.scale.set(0, 0, 0)
+    // 初期状態：スケール0
+    this.container.scale.set(0, 0, 0)
 
     this.timeline = gsap.timeline({
       onComplete: () => {
         this.hide()
         this.onCompleteCallback?.()
-      }
+      },
     })
 
     this.timeline
-      // フェードイン + スケールイン
-      .to(this.material, {
-        opacity: 1,
-        duration: 0.15,
-        ease: 'power2.out'
+      // 登場: スケールイン
+      .to(this.container.scale, {
+        x: originalScale.x * 1.1,
+        y: originalScale.y * 1.1,
+        z: originalScale.z * 1.1,
+        duration: 0.2,
+        ease: 'back.out(2)',
       })
-      .to(
-        this.sprite.scale,
-        {
-          x: originalScale.x * 1.1,
-          y: originalScale.y * 1.1,
-          z: 1,
-          duration: 0.15,
-          ease: 'back.out(2)'
-        },
-        0
-      )
       // バウンス
-      .to(this.sprite.scale, {
+      .to(this.container.scale, {
         x: originalScale.x,
         y: originalScale.y,
+        z: originalScale.z,
         duration: 0.1,
-        ease: 'power2.out'
+        ease: 'power2.out',
       })
+      // 光沢アニメーション
+      .add(() => this.extrudedText?.playShineAnimation(), 0.15)
       // 表示維持
       .to({}, { duration: 0.5 })
-      // フェードアウト
-      .to(this.material, {
-        opacity: 0,
+      // 退場: スケールアウト
+      .to(this.container.scale, {
+        x: originalScale.x * 0.8,
+        y: originalScale.y * 0.8,
+        z: originalScale.z * 0.8,
         duration: 0.25,
-        ease: 'power2.in'
+        ease: 'power2.in',
       })
-      .to(
-        this.sprite.scale,
-        {
-          x: originalScale.x * 0.8,
-          y: originalScale.y * 0.8,
-          duration: 0.25,
-          ease: 'power2.in'
-        },
-        '-=0.25'
-      )
   }
 
   hide() {
@@ -214,17 +125,19 @@ export class CutInText {
       this.timeline = null
     }
 
-    if (this.sprite) {
-      this.scene.remove(this.sprite)
-      this.sprite = null
+    if (this.extrudedText) {
+      this.extrudedText.dispose()
+      this.extrudedText = null
     }
 
-    if (this.material) {
-      if (this.material.map) {
-        this.material.map.dispose()
-      }
-      this.material.dispose()
-      this.material = null
+    if (this.localLight) {
+      this.localLight.dispose()
+      this.localLight = null
+    }
+
+    if (this.container) {
+      this.scene.remove(this.container)
+      this.container = null
     }
   }
 

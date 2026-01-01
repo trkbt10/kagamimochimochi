@@ -10,6 +10,14 @@ export {
 
 export { MochiManager } from './MochiManager'
 
+// 物理・装飾関連
+export { PhysicsContext, type PhysicsContextConfig } from './PhysicsContext'
+export {
+  DecorativeMochiGroup,
+  type DecorativeMochiConfig,
+  type MochiDisplayState
+} from './DecorativeMochiGroup'
+
 // 他のオブジェクト
 export { Kadomatsu } from './Kadomatsu'
 export { MountainFuji } from './MountainFuji'

@@ -7,7 +7,7 @@ import { redistributeParticles, calculateLayoutScale } from '../core/layout'
 import { createTextSprite } from '../ui/text-sprite'
 import { Button3D } from '../ui/button-3d'
 import { createConfettiSystem, updateConfetti } from '../ui/confetti'
-import { createMochiGeometry } from '../objects'
+import { PhysicsContext, DecorativeMochiGroup } from '../objects'
 import { GlitterScoreRenderer } from '../effects'
 import { SkyGradient } from '../effects/SkyGradient'
 import { SnowEffect } from '../effects/SnowEffect'
@@ -102,7 +102,8 @@ export function getScoreTierConfig(score: number): ScoreTierConfig {
 export class ResultScene extends BaseScene {
   private score = 0
   private particles: THREE.Points | null = null
-  private kagamimochi: THREE.Group | null = null
+  private physicsContext: PhysicsContext | null = null
+  private decorativeMochi: DecorativeMochiGroup | null = null
   private confetti: THREE.Points | null = null
 
   // ゲームモード関連
@@ -221,6 +222,12 @@ export class ResultScene extends BaseScene {
     this.snowEffect = null
     this.mountain = null
 
+    // 鏡餅のクリーンアップ
+    this.decorativeMochi?.dispose()
+    this.physicsContext?.dispose()
+    this.decorativeMochi = null
+    this.physicsContext = null
+
     this.clearScene()
   }
 
@@ -233,8 +240,11 @@ export class ResultScene extends BaseScene {
       this.particles.rotation.y += delta * 0.2
     }
 
-    if (this.kagamimochi) {
-      this.kagamimochi.rotation.y += delta * 0.5
+    // 物理演算と鏡餅の更新
+    if (this.physicsContext && this.decorativeMochi) {
+      this.physicsContext.step(delta)
+      this.decorativeMochi.update(delta)
+      this.decorativeMochi.group.rotation.y += delta * 0.5
     }
 
     // 紙吹雪のアニメーション
@@ -326,58 +336,44 @@ export class ResultScene extends BaseScene {
   }
 
   private createResultKagamimochi() {
-    this.kagamimochi = new THREE.Group()
+    // 物理コンテキストを作成（通常の重力）
+    this.physicsContext = new PhysicsContext()
 
-    // Create a visual representation based on score
-    const mochiMaterial = new THREE.MeshStandardMaterial({
-      color: 0xfff8e7,
-      roughness: 0.9,
-      metalness: 0.0,
-      transparent: true,
-      opacity: this.score >= 30 ? 1 : 0.3
+    // 装飾用鏡餅グループを作成（餅のみ）
+    this.decorativeMochi = new DecorativeMochiGroup({
+      includeDai: false,
+      includeLeaf: false,
+      physicsContext: this.physicsContext,
+      initialPosition: new THREE.Vector3(0, 2, 0)
     })
 
-    // Base mochi（下が広い鏡餅型）
-    const baseGeometry = createMochiGeometry(1.5, 0.75)
-    const baseMochi = new THREE.Mesh(baseGeometry, mochiMaterial)
-    baseMochi.position.y = -0.5
-
-    // Offset based on score (lower score = more offset)
+    // スコアに応じた表示状態を適用
     const baseOffset = this.score >= 30 ? 0 : (100 - this.score) * 0.02
-    baseMochi.position.x = baseOffset * (Math.random() - 0.5)
-    baseMochi.position.z = baseOffset * (Math.random() - 0.5)
-    this.kagamimochi.add(baseMochi)
-
-    // Top mochi（下が広い鏡餅型）
-    const topGeometry = createMochiGeometry(1.1, 0.55)
-    const topMochiMaterial = mochiMaterial.clone()
-    topMochiMaterial.opacity = this.score >= 60 ? 1 : 0.3
-    const topMochi = new THREE.Mesh(topGeometry, topMochiMaterial)
-    topMochi.position.y = 0.3
-
     const topOffset = this.score >= 60 ? 0 : (100 - this.score) * 0.03
-    topMochi.position.x = topOffset * (Math.random() - 0.5)
-    topMochi.position.z = topOffset * (Math.random() - 0.5)
-    this.kagamimochi.add(topMochi)
-
-    // Mikan
-    const mikanGeometry = new THREE.SphereGeometry(0.5, 32, 24)
-    const mikanMaterial = new THREE.MeshStandardMaterial({
-      color: 0xff8c00,
-      roughness: 0.8,
-      transparent: true,
-      opacity: this.score >= 80 ? 1 : 0.3
-    })
-    const mikan = new THREE.Mesh(mikanGeometry, mikanMaterial)
-    mikan.position.y = 1
-
     const mikanOffset = this.score >= 80 ? 0 : (100 - this.score) * 0.04
-    mikan.position.x = mikanOffset * (Math.random() - 0.5)
-    mikan.position.z = mikanOffset * (Math.random() - 0.5)
-    this.kagamimochi.add(mikan)
 
-    this.kagamimochi.position.y = 2
-    this.scene.add(this.kagamimochi)
+    this.decorativeMochi.applyDisplayState({
+      baseOpacity: this.score >= 30 ? 1 : 0.3,
+      topOpacity: this.score >= 60 ? 1 : 0.3,
+      mikanOpacity: this.score >= 80 ? 1 : 0.3,
+      baseOffset: new THREE.Vector3(
+        baseOffset * (Math.random() - 0.5),
+        0,
+        baseOffset * (Math.random() - 0.5)
+      ),
+      topOffset: new THREE.Vector3(
+        topOffset * (Math.random() - 0.5),
+        0,
+        topOffset * (Math.random() - 0.5)
+      ),
+      mikanOffset: new THREE.Vector3(
+        mikanOffset * (Math.random() - 0.5),
+        0,
+        mikanOffset * (Math.random() - 0.5)
+      )
+    })
+
+    this.decorativeMochi.addToScene(this.scene)
   }
 
   private buildUI3D() {
@@ -675,8 +671,8 @@ export class ResultScene extends BaseScene {
     }
 
     // 鏡餅のアニメーション
-    if (this.kagamimochi) {
-      gsap.from(this.kagamimochi.scale, {
+    if (this.decorativeMochi) {
+      gsap.from(this.decorativeMochi.group.scale, {
         x: 0,
         y: 0,
         z: 0,

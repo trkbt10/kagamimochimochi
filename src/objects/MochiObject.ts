@@ -243,6 +243,35 @@ export class MochiObject {
     return Math.sqrt(v.x ** 2 + v.y ** 2 + v.z ** 2)
   }
 
+  // --- Opacity Control ---
+  /**
+   * 透明度を設定（ResultScene用）
+   */
+  setOpacity(opacity: number): void {
+    if (this.mesh.material instanceof THREE.MeshStandardMaterial) {
+      this.mesh.material.transparent = opacity < 1
+      this.mesh.material.opacity = opacity
+    }
+  }
+
+  /**
+   * 現在の透明度を取得
+   */
+  getOpacity(): number {
+    if (this.mesh.material instanceof THREE.MeshStandardMaterial) {
+      return this.mesh.material.opacity
+    }
+    return 1
+  }
+
+  // --- Force Application ---
+  /**
+   * 外力を適用（浮遊アニメーション用）
+   */
+  applyForce(force: CANNON.Vec3, worldPoint?: CANNON.Vec3): void {
+    this.body.applyForce(force, worldPoint ?? this.body.position)
+  }
+
   // --- Creation (Private) ---
   private createMesh(position: THREE.Vector3): THREE.Mesh {
     const geometry = this.createGeometry()

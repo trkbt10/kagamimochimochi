@@ -1,0 +1,13 @@
+{
+  "font": {
+    "family": "Noto Sans JP",
+    "weight": "900",
+    "path": "./fonts/NotoSansJP-Black.ttf"
+  },
+  "texts": [
+    "崩壊！",
+    "着地！",
+    "スタート！",
+    "ゲームオーバー！"
+  ]
+}
