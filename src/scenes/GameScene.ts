@@ -783,58 +783,43 @@ export class GameScene extends BaseScene {
 
   private onObjectLanded() {
     this.phase = 'landed'
-    this.game.audioManager.playLand()
-
-    // 追従を停止
     this.game.cameraController.stopFollow()
 
     const landingPos = this.currentMochi!.position
 
-    // ヒットストップ開始
-    this.timeScale = 0.05
-
-    // 土埃と衝撃波
-    this.effectManager?.emitDust(landingPos, 1)
+    // === 瞬間の同時発火（桜井政博的演出） ===
+    this.game.audioManager.playLand()
     this.effectManager?.triggerShockwave(landingPos)
+    this.effectManager?.emitDust(landingPos, 1)
+    this.game.cameraEffects?.triggerLandingEffect(0.8)
 
-    // 着地エフェクト（シェイク）
-    this.game.cameraEffects?.triggerLandingEffect(0.5)
+    // 短いヒットストップ（50ms）- 衝撃の「瞬間」だけを強調
+    this.timeScale = 0.1
 
     updateUITextSprite(this.instructionSprite!, '', 60, '#00FF00')
 
-    // カメラの現在位置を保存してカット
     const cutPosition = new THREE.Vector3(
       landingPos.x + 2,
       landingPos.y + 2,
       landingPos.z + 3
     )
 
-    // ヒットストップ後にカメラカット
-    gsap.timeline()
-      .to({}, { duration: 0.15 }) // ヒットストップ維持
-      .call(() => {
-        // カメラをお餅にカット（瞬時に移動、元位置を保存）
-        this.game.cameraController.cutTo(cutPosition, landingPos, { saveState: true })
+    // 50ms後に即解除 + カメラカット + カットイン
+    setTimeout(() => {
+      this.timeScale = 1.0 // 即座に復帰（グラデーションなし）
 
-        // ヒットストップ解除
-        gsap.to(this, {
-          timeScale: 1,
-          duration: 0.3,
-          ease: 'power2.out'
-        })
+      this.game.cameraController.cutTo(cutPosition, landingPos, { saveState: true })
 
-        // 文字表示（完了後にカメラを戻す）
-        this.effectManager?.showCutIn('着地！', this.game.camera, () => {
-          // カメラを元に戻す（スムーズに）
-          this.game.cameraController.returnToSaved({
-            duration: 0.4,
-            ease: 'power2.out',
-            onComplete: () => {
-              this.proceedToNextObject()
-            }
-          })
+      this.effectManager?.showCutIn('着地！', this.game.camera, () => {
+        this.game.cameraController.returnToSaved({
+          duration: 0.4,
+          ease: 'power2.out',
+          onComplete: () => {
+            this.proceedToNextObject()
+          }
         })
       })
+    }, 50)
   }
 
   private proceedToNextObject() {

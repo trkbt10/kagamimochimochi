@@ -136,13 +136,6 @@ async function generatePaths() {
 
 import type { TextPathData } from '../types'
 
-/** @deprecated TEXT_PATH_DATAを使用してください */
-export const TEXT_PATHS: Record<string, string> = ${JSON.stringify(
-    Object.fromEntries(Object.entries(pathData).map(([k, v]) => [k, v.svg])),
-    null,
-    2
-  )}
-
 /** テキストパスデータ（SVG + 視覚的重心情報） */
 export const TEXT_PATH_DATA: Record<string, TextPathData> = ${JSON.stringify(pathData, null, 2)}
 `

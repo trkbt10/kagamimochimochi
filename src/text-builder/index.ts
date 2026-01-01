@@ -1,5 +1,5 @@
 export { ExtrudedText } from './ExtrudedText'
 export { ExtrudedCharacter } from './ExtrudedCharacter'
 export type { CharacterAnimationPhase } from './ExtrudedCharacter'
-export { TEXT_PATHS, TEXT_PATH_DATA } from './generated/text-paths'
+export { TEXT_PATH_DATA } from './generated/text-paths'
 export type { ExtrudeTextOptions, TextConfig, TextPathData, TextEntry } from './types'
