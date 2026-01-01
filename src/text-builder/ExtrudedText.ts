@@ -47,14 +47,32 @@ export class ExtrudedText {
       const shapes = SVGLoader.createShapes(path)
 
       for (const shape of shapes) {
-        // ベベルセグメントを増やして滑らかに（最低12）
+        const bevelSegments = Math.max(options.bevelSegments, 12)
+
+        // アウトラインレイヤーを作成（外側から順に、後ろに配置）
+        if (options.outlines) {
+          for (let i = 0; i < options.outlines.length; i++) {
+            const outline = options.outlines[i]
+            const outlineMesh = this.createOutlineMesh(
+              shape,
+              options,
+              outline,
+              bevelSegments,
+              i
+            )
+            this.meshes.push(outlineMesh)
+            this.group.add(outlineMesh)
+          }
+        }
+
+        // メインジオメトリを作成
         const geometry = new THREE.ExtrudeGeometry(shape, {
           depth: options.depth,
           bevelEnabled: true,
           bevelThickness: options.bevelThickness,
           bevelSize: options.bevelSize,
           bevelOffset: 0,
-          bevelSegments: Math.max(options.bevelSegments, 12),
+          bevelSegments: bevelSegments,
         })
 
         // バウンディングボックスを更新
@@ -64,16 +82,6 @@ export class ExtrudedText {
           minY = Math.min(minY, geometry.boundingBox.min.y)
           maxX = Math.max(maxX, geometry.boundingBox.max.x)
           maxY = Math.max(maxY, geometry.boundingBox.max.y)
-        }
-
-        // アウトラインレイヤーを作成（後ろから前へ描画）
-        if (options.outlines) {
-          for (let i = 0; i < options.outlines.length; i++) {
-            const outline = options.outlines[i]
-            const outlineMesh = this.createOutlineMesh(geometry, outline, i)
-            this.meshes.push(outlineMesh)
-            this.group.add(outlineMesh)
-          }
         }
 
         // マテリアル（前面と側面で異なる色）
@@ -118,15 +126,25 @@ export class ExtrudedText {
 
   /**
    * アウトラインメッシュを作成
-   * @param baseGeometry ベースとなるジオメトリ
-   * @param outline アウトラインの設定
-   * @param index アウトラインのインデックス（renderOrder計算用）
+   * ベベルを拡大した別ジオメトリを生成し、メインの後ろに配置
    */
   private createOutlineMesh(
-    baseGeometry: THREE.ExtrudeGeometry,
+    shape: THREE.Shape,
+    options: ExtrudeTextOptions,
     outline: OutlineLayer,
+    bevelSegments: number,
     index: number
   ): THREE.Mesh {
+    // アウトライン用にベベルを拡大したジオメトリを生成
+    const outlineGeometry = new THREE.ExtrudeGeometry(shape, {
+      depth: options.depth,
+      bevelEnabled: true,
+      bevelThickness: options.bevelThickness + outline.bevelOffset,
+      bevelSize: options.bevelSize + outline.bevelOffset,
+      bevelOffset: 0,
+      bevelSegments: bevelSegments,
+    })
+
     const material = new THREE.MeshStandardMaterial({
       color: outline.color,
       metalness: 0.2,
@@ -134,11 +152,12 @@ export class ExtrudedText {
       side: THREE.FrontSide,
     })
 
-    const mesh = new THREE.Mesh(baseGeometry, material)
-    // スケールで拡大してアウトライン効果を実現
-    mesh.scale.setScalar(outline.scale)
-    // アウトラインはメインより後ろに描画（負のrenderOrder）
-    mesh.renderOrder = -(index + 1)
+    const mesh = new THREE.Mesh(outlineGeometry, material)
+    // アウトラインはメインより後ろに配置
+    // bevelOffsetが大きいほど後ろに（大きいアウトラインほど奥に）
+    mesh.position.z = -(outline.bevelOffset * 1.5)
+    // renderOrderでも描画順を制御（bevelOffsetが大きいほど先に描画=後ろに）
+    mesh.renderOrder = -outline.bevelOffset
     return mesh
   }
 

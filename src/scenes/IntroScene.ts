@@ -25,7 +25,8 @@ const TITLE_TEXT_OPTIONS = {
   frontColor: 0xffd700, // ゴールド
   sideColor: 0xcc0000, // 赤（内側ふちどり）
   outlines: [
-    { scale: 1.10, color: 0x000000 }, // 黒（外側ふちどり）
+    { bevelOffset: 6, color: 0x000000 }, // 黒（最外側ふちどり）
+    { bevelOffset: 3, color: 0xcc0000 }, // 赤（外側ふちどり）
   ],
 }
 

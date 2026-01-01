@@ -1,11 +1,9 @@
 /** アウトラインレイヤーの定義 */
 export type OutlineLayer = {
-  /** 拡大率（1.0 = 元サイズ、1.1 = 10%大きい） */
-  scale: number
+  /** ベベル拡大量（メインのbevelSizeに加算される値） */
+  bevelOffset: number
   /** 色 */
   color: number
-  /** 深度（省略時はメインと同じ） */
-  depth?: number
 }
 
 export type ExtrudeTextOptions = {

@@ -2,16 +2,18 @@ import * as THREE from 'three'
 import { gsap } from 'gsap'
 import { ExtrudedText, TEXT_PATH_DATA, type ExtrudeTextOptions } from '../text-builder'
 
-// 構成: 緑(本体) → 緑(側面ふち) → 濃い緑(外側ふち)
+// 構成: ミント(本体) → 緑(側面) → 緑(外ふち) → 濃い緑(最外ふち)
+// 参考: 丸みのある緑グラデーション風
 const DEFAULT_OPTIONS: ExtrudeTextOptions = {
-  depth: 8,
-  bevelThickness: 2,
-  bevelSize: 1.5,
-  bevelSegments: 15, // 5→15に増加（滑らかなベベル）
-  frontColor: 0x88ee44, // ライムグリーン
-  sideColor: 0x44aa22, // 緑（内側ふちどり）
+  depth: 6,
+  bevelThickness: 2, // 控えめに
+  bevelSize: 1.5, // 控えめに
+  bevelSegments: 15,
+  frontColor: 0x88eedd, // ミント/シアン
+  sideColor: 0x44cc88, // 緑（内側ふちどり）
   outlines: [
-    { scale: 1.08, color: 0x225522 }, // 濃い緑（外側ふちどり）
+    { bevelOffset: 4, color: 0x228844 }, // 濃い緑（最外側ふちどり）
+    { bevelOffset: 2, color: 0x44aa66 }, // 緑（外側ふちどり）
   ],
 }
 
